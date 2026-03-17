@@ -259,6 +259,7 @@ CREATE TABLE IF NOT EXISTS horarios (
     hora_cierre TEXT,
     activo BOOLEAN DEFAULT 1
 );
+
 -- Domicilio
 CREATE TABLE IF NOT EXISTS domicilio (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -266,6 +267,7 @@ CREATE TABLE IF NOT EXISTS domicilio (
     telefono_contacto TEXT,
     horario TEXT
 );
+
 -- Números para avisos
 CREATE TABLE IF NOT EXISTS avisos_pedidos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -275,6 +277,7 @@ CREATE TABLE IF NOT EXISTS avisos_pedidos (
     ultimo_aviso DATETIME,
     orden INTEGER DEFAULT 0
 );
+
 -- Desayunos diarios
 CREATE TABLE IF NOT EXISTS menu_desayunos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -284,6 +287,7 @@ CREATE TABLE IF NOT EXISTS menu_desayunos (
     incluye TEXT DEFAULT 'Café o té + fruta',
     disponible BOOLEAN DEFAULT 1
 );
+
 -- Comida corrida por tiempos
 CREATE TABLE IF NOT EXISTS menu_comida_tiempos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -295,6 +299,7 @@ CREATE TABLE IF NOT EXISTS menu_comida_tiempos (
     precio_total INTEGER,
     disponible BOOLEAN DEFAULT 1
 );
+
 -- Números autorizados
 CREATE TABLE IF NOT EXISTS autorizados (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -302,12 +307,14 @@ CREATE TABLE IF NOT EXISTS autorizados (
     rol TEXT DEFAULT 'dueño',
     activo BOOLEAN DEFAULT 1
 );
+
 -- Spintax (variaciones)
 CREATE TABLE IF NOT EXISTS spintax (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     categoria TEXT,
     variante TEXT
 );
+
 -- Conversaciones
 CREATE TABLE IF NOT EXISTS conversaciones (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -316,6 +323,7 @@ CREATE TABLE IF NOT EXISTS conversaciones (
     ultimo_mensaje DATETIME,
     variaciones_usadas TEXT
 );
+
 -- Logs
 CREATE TABLE IF NOT EXISTS logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -323,6 +331,7 @@ CREATE TABLE IF NOT EXISTS logs (
     tipo TEXT,
     mensaje TEXT
 );
+
 -- Insertar spintax inicial
 INSERT INTO spintax (categoria, variante) VALUES 
 ('saludo', '{☀️|🌅|🙌|🌞|🌤️} {BUENOS DÍAS|BUEN DÍA|Muy buenos días|QUÉ TAL}'),
@@ -376,9 +385,7 @@ echo -e "${BLANCO}Ingresa el número del BOT (el que atenderá clientes)${NC}"
 echo -e "Formato: 5215512345678 (código de país + número sin espacios)"
 echo -e "${AMARILLO}Ejemplo: 5215551234567${NC}"
 echo -n "> "
-
-# NUEVA HERRAMIENTA DE CAPTURA (Solución Paso 10)
-# Se utiliza redirección desde /dev/tty para garantizar la espera física del usuario
+# Corrección técnica para asegurar la captura del número
 read NUMERO_BOT < /dev/tty
 
 if [ -z "$NUMERO_BOT" ];
@@ -391,8 +398,7 @@ echo ""
 echo -e "${BLANCO}Ingresa el número del DUEÑO (el que dará instrucciones)${NC}"
 echo -e "Formato: 5215512345678"
 echo -n "> "
-
-# NUEVA HERRAMIENTA DE CAPTURA (Solución Paso 10)
+# Corrección técnica para asegurar la captura del número
 read NUMERO_DUENO < /dev/tty
 
 if [ -z "$NUMERO_DUENO" ];
