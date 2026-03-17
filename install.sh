@@ -56,11 +56,6 @@ esperar_usuario() {
     read
 }
 
-# Función para limpiar buffer de entrada (solo para Paso 10)
-limpiar_buffer() {
-    while read -r -t 0; do read -r; done
-}
-
 # =============================================
 # INICIO DE LA INSTALACIÓN
 # =============================================
@@ -125,12 +120,24 @@ clear
 mensaje_titulo "PASO 3/12 - CREANDO DIRECTORIO DEL PROYECTO"
 
 cd ~
-if [ -d "comidabot" ]; then
-    mensaje_advertencia "El directorio comidabot ya existe. Continuando..."
-else
-    mkdir -p ~/comidabot
+if [ -d "comidabot" ];
+then
+    mensaje_advertencia "El directorio comidabot ya existe. ¿Deseas eliminarlo? (s/n)"
+    read -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Ss]$ ]];
+then
+        rm -rf comidabot
+        mensaje "Directorio eliminado"
+    else
+        mensaje_error "No se puede continuar con un directorio existente"
+        exit 1
+    fi
 fi
+
+mkdir -p ~/comidabot
 cd ~/comidabot
+verificar_paso "Directorio creado en ~/comidabot" "Error al crear directorio" "Paso 3 - Directorio"
 
 # =============================================
 # PASO 4: Instalar Whisper.cpp
@@ -252,7 +259,6 @@ CREATE TABLE IF NOT EXISTS horarios (
     hora_cierre TEXT,
     activo BOOLEAN DEFAULT 1
 );
-
 -- Domicilio
 CREATE TABLE IF NOT EXISTS domicilio (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -260,7 +266,6 @@ CREATE TABLE IF NOT EXISTS domicilio (
     telefono_contacto TEXT,
     horario TEXT
 );
-
 -- Números para avisos
 CREATE TABLE IF NOT EXISTS avisos_pedidos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -270,7 +275,6 @@ CREATE TABLE IF NOT EXISTS avisos_pedidos (
     ultimo_aviso DATETIME,
     orden INTEGER DEFAULT 0
 );
-
 -- Desayunos diarios
 CREATE TABLE IF NOT EXISTS menu_desayunos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -280,7 +284,6 @@ CREATE TABLE IF NOT EXISTS menu_desayunos (
     incluye TEXT DEFAULT 'Café o té + fruta',
     disponible BOOLEAN DEFAULT 1
 );
-
 -- Comida corrida por tiempos
 CREATE TABLE IF NOT EXISTS menu_comida_tiempos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -292,7 +295,6 @@ CREATE TABLE IF NOT EXISTS menu_comida_tiempos (
     precio_total INTEGER,
     disponible BOOLEAN DEFAULT 1
 );
-
 -- Números autorizados
 CREATE TABLE IF NOT EXISTS autorizados (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -300,14 +302,12 @@ CREATE TABLE IF NOT EXISTS autorizados (
     rol TEXT DEFAULT 'dueño',
     activo BOOLEAN DEFAULT 1
 );
-
 -- Spintax (variaciones)
 CREATE TABLE IF NOT EXISTS spintax (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     categoria TEXT,
     variante TEXT
 );
-
 -- Conversaciones
 CREATE TABLE IF NOT EXISTS conversaciones (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -316,7 +316,6 @@ CREATE TABLE IF NOT EXISTS conversaciones (
     ultimo_mensaje DATETIME,
     variaciones_usadas TEXT
 );
-
 -- Logs
 CREATE TABLE IF NOT EXISTS logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -324,7 +323,6 @@ CREATE TABLE IF NOT EXISTS logs (
     tipo TEXT,
     mensaje TEXT
 );
-
 -- Insertar spintax inicial
 INSERT INTO spintax (categoria, variante) VALUES 
 ('saludo', '{☀️|🌅|🙌|🌞|🌤️} {BUENOS DÍAS|BUEN DÍA|Muy buenos días|QUÉ TAL}'),
@@ -368,13 +366,10 @@ EOF
 mensaje_ok "Archivo config.json creado"
 
 # =============================================
-# PASO 10: Solicitar números (CORREGIDO - AHORA ESPERA)
+# PASO 10: Solicitar números y emparejamiento
 # =============================================
 clear
 mensaje_titulo "PASO 10/12 - CONFIGURACIÓN DE NÚMEROS"
-
-# Limpiar buffer antes de leer
-limpiar_buffer
 
 echo ""
 echo -e "${BLANCO}Ingresa el número del BOT (el que atenderá clientes)${NC}"
@@ -382,29 +377,29 @@ echo -e "Formato: 5215512345678 (código de país + número sin espacios)"
 echo -e "${AMARILLO}Ejemplo: 5215551234567${NC}"
 echo -n "> "
 
-# Leer con validación - ESPERA HASTA QUE SE INGRESE ALGO
-while true; do
-    read NUMERO_BOT
-    if [ -n "$NUMERO_BOT" ]; then
-        break
-    else
-        echo -n "> "
-    fi
-done
+# NUEVA HERRAMIENTA DE CAPTURA (Solución Paso 10)
+# Se utiliza redirección desde /dev/tty para garantizar la espera física del usuario
+read NUMERO_BOT < /dev/tty
+
+if [ -z "$NUMERO_BOT" ];
+then
+    mensaje_error "El número del bot es obligatorio"
+    exit 1
+fi
 
 echo ""
 echo -e "${BLANCO}Ingresa el número del DUEÑO (el que dará instrucciones)${NC}"
 echo -e "Formato: 5215512345678"
 echo -n "> "
 
-while true; do
-    read NUMERO_DUENO
-    if [ -n "$NUMERO_DUENO" ]; then
-        break
-    else
-        echo -n "> "
-    fi
-done
+# NUEVA HERRAMIENTA DE CAPTURA (Solución Paso 10)
+read NUMERO_DUENO < /dev/tty
+
+if [ -z "$NUMERO_DUENO" ];
+then
+    mensaje_error "El número del dueño es obligatorio"
+    exit 1
+fi
 
 # Guardar números en config.json
 sed -i "s/\"numero_bot\": \"\"/\"numero_bot\": \"$NUMERO_BOT\"/" config.json
@@ -412,7 +407,6 @@ sed -i "s/\"numero_dueño\": \"\"/\"numero_dueño\": \"$NUMERO_DUENO\"/" config.
 
 # Insertar número de dueño en base de datos como autorizado
 sqlite3 comidabot.db "INSERT OR IGNORE INTO autorizados (numero, rol) VALUES ('$NUMERO_DUENO', 'dueño');"
-
 mensaje_ok "Números guardados correctamente"
 
 # =============================================
@@ -440,7 +434,6 @@ async function emparejar() {
     console.log(`Número del Bot: ${numeroBot}\n`);
 
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-    
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
@@ -522,7 +515,6 @@ const sendTyping = async (sock, jid, time) => {
 // Procesar mensajes entrantes
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-    
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
@@ -581,4 +573,4 @@ cat > README.md << 'EOF'
 
 ## Instalación (un solo comando)
 ```bash
-curl -sSL https://raw.githubusercontent.com/TU_USUARIO/comidabot/main/install.sh | bash
+curl -sSL [https://raw.githubusercontent.com/TU_USUARIO/comidabot/main/install.sh](https://raw.githubusercontent.com/TU_USUARIO/comidabot/main/install.sh) | bash
