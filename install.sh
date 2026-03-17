@@ -2,7 +2,7 @@
 
 # =============================================
 # INSTALADOR DE COMIDABOT PARA TERMUX
-# Versión: 1.1 - Con verificación de instalación
+# Versión: 1.0
 # =============================================
 
 # Colores para mensajes
@@ -14,10 +14,6 @@ MAGENTA='\033[0;35m'
 CIAN='\033[0;36m'
 BLANCO='\033[1;37m'
 NC='\033[0m' # Sin color
-
-# Archivo de estado
-ARCHIVO_ESTADO="$HOME/comidabot/instalacion_estado.txt"
-PASO_ACTUAL=0
 
 # Función para mostrar mensajes
 mensaje() {
@@ -60,13 +56,7 @@ esperar_usuario() {
     read
 }
 
-# Función para actualizar estado
-actualizar_estado() {
-    echo "$1" > "$ARCHIVO_ESTADO"
-    PASO_ACTUAL=$1
-}
-
-# Función para limpiar buffer de entrada
+# Función para limpiar buffer de entrada (solo para Paso 10)
 limpiar_buffer() {
     while read -r -t 0; do read -r; done
 }
@@ -94,138 +84,89 @@ esperar_usuario
 # =============================================
 # PASO 1: Actualizar Termux
 # =============================================
-if [ "$PASO_ACTUAL" -lt 1 ]; then
-    clear
-    mensaje_titulo "PASO 1/12 - ACTUALIZANDO TERMUX"
-    mensaje "Actualizando repositorios y paquetes básicos..."
-    pkg update -y && pkg upgrade -y
-    verificar_paso "Termux actualizado correctamente" "Error al actualizar Termux" "Paso 1 - Actualización"
-    actualizar_estado 1
-else
-    mensaje_ok "Paso 1 ya completado. Continuando..."
-fi
+clear
+mensaje_titulo "PASO 1/12 - ACTUALIZANDO TERMUX"
+mensaje "Actualizando repositorios y paquetes básicos..."
+pkg update -y && pkg upgrade -y
+verificar_paso "Termux actualizado correctamente" "Error al actualizar Termux" "Paso 1 - Actualización"
 
 # =============================================
 # PASO 2: Instalar dependencias base
 # =============================================
-if [ "$PASO_ACTUAL" -lt 2 ]; then
-    clear
-    mensaje_titulo "PASO 2/12 - INSTALANDO DEPENDENCIAS BASE"
-    mensaje "Instalando paquetes esenciales..."
+clear
+mensaje_titulo "PASO 2/12 - INSTALANDO DEPENDENCIAS BASE"
+mensaje "Instalando paquetes esenciales..."
 
-    pkg install -y \
-        nodejs \
-        python \
-        git \
-        wget \
-        curl \
-        build-essential \
-        cmake \
-        ffmpeg \
-        imagemagick \
-        openssl \
-        sqlite \
-        nano
+pkg install -y \
+    nodejs \
+    python \
+    git \
+    wget \
+    curl \
+    build-essential \
+    cmake \
+    ffmpeg \
+    imagemagick \
+    openssl \
+    sqlite \
+    nano
 
-    verificar_paso "Dependencias base instaladas" "Error al instalar dependencias base" "Paso 2 - Dependencias base"
+verificar_paso "Dependencias base instaladas" "Error al instalar dependencias base" "Paso 2 - Dependencias base"
 
-    # Verificar versiones instaladas
-    mensaje "Node.js: $(node --version)"
-    mensaje "npm: $(npm --version)"
-    mensaje "Python: $(python --version 2>&1)"
-    actualizar_estado 2
-else
-    mensaje_ok "Paso 2 ya completado. Continuando..."
-fi
+# Verificar versiones instaladas
+mensaje "Node.js: $(node --version)"
+mensaje "npm: $(npm --version)"
+mensaje "Python: $(python --version 2>&1)"
 
 # =============================================
 # PASO 3: Crear directorio del proyecto
 # =============================================
-if [ "$PASO_ACTUAL" -lt 3 ]; then
-    clear
-    mensaje_titulo "PASO 3/12 - CREANDO DIRECTORIO DEL PROYECTO"
+clear
+mensaje_titulo "PASO 3/12 - CREANDO DIRECTORIO DEL PROYECTO"
 
-    cd ~
-    if [ -d "comidabot" ]; then
-        mensaje_advertencia "El directorio comidabot ya existe. ¿Deseas eliminarlo? (s/n)"
-        read -n 1 -r
-        echo ""
-        if [[ $REPLY =~ ^[Ss]$ ]]; then
-            rm -rf comidabot
-            mensaje "Directorio eliminado"
-        else
-            mensaje_error "No se puede continuar con un directorio existente"
-            exit 1
-        fi
-    fi
-
-    mkdir -p ~/comidabot
-    cd ~/comidabot
-    verificar_paso "Directorio creado en ~/comidabot" "Error al crear directorio" "Paso 3 - Directorio"
-    actualizar_estado 3
+cd ~
+if [ -d "comidabot" ]; then
+    mensaje_advertencia "El directorio comidabot ya existe. Continuando..."
 else
-    mensaje_ok "Paso 3 ya completado. Continuando..."
-    cd ~/comidabot
+    mkdir -p ~/comidabot
 fi
+cd ~/comidabot
 
 # =============================================
 # PASO 4: Instalar Whisper.cpp
 # =============================================
-if [ "$PASO_ACTUAL" -lt 4 ]; then
-    clear
-    mensaje_titulo "PASO 4/12 - INSTALANDO WHISPER.CPP (RECONOCIMIENTO DE VOZ)"
+clear
+mensaje_titulo "PASO 4/12 - INSTALANDO WHISPER.CPP (RECONOCIMIENTO DE VOZ)"
 
-    mensaje "Clonando repositorio de Whisper.cpp..."
-    if [ -d "whisper.cpp" ]; then
-        mensaje_advertencia "El directorio whisper.cpp ya existe. Usando el existente..."
-    else
-        git clone https://github.com/ggerganov/whisper.cpp.git
-        verificar_paso "Repositorio clonado" "Error al clonar Whisper.cpp" "Paso 4 - Git clone"
-    fi
+mensaje "Clonando repositorio de Whisper.cpp..."
+git clone https://github.com/ggerganov/whisper.cpp.git
+verificar_paso "Repositorio clonado" "Error al clonar Whisper.cpp" "Paso 4 - Git clone"
 
-    cd whisper.cpp
+cd whisper.cpp
 
-    mensaje "Compilando Whisper.cpp (esto puede tomar varios minutos)..."
-    if [ -f "main" ]; then
-        mensaje_ok "Whisper.cpp ya está compilado"
-    else
-        make -j4
-        verificar_paso "Compilación completada" "Error al compilar Whisper.cpp" "Paso 4 - Compilación"
-    fi
+mensaje "Compilando Whisper.cpp (esto puede tomar varios minutos)..."
+make -j4
+verificar_paso "Compilación completada" "Error al compilar Whisper.cpp" "Paso 4 - Compilación"
 
-    mensaje "Verificando modelo TINY..."
-    if [ -f "models/ggml-tiny.bin" ]; then
-        mensaje_ok "Modelo TINY ya existe"
-    else
-        mensaje "Descargando modelo TINY (75MB - el más liviano)..."
-        bash ./models/download-ggml-model.sh tiny
-        verificar_paso "Modelo TINY descargado" "Error al descargar modelo TINY" "Paso 4 - Descarga modelo"
-    fi
+mensaje "Descargando modelo TINY (75MB - el más liviano)..."
+bash ./models/download-ggml-model.sh tiny
+verificar_paso "Modelo TINY descargado" "Error al descargar modelo TINY" "Paso 4 - Descarga modelo"
 
-    cd ~/comidabot
-    mensaje_ok "Whisper.cpp instalado correctamente"
-    actualizar_estado 4
-else
-    mensaje_ok "Paso 4 ya completado. Continuando..."
-fi
+cd ~/comidabot
+mensaje_ok "Whisper.cpp instalado correctamente"
 
 # =============================================
 # PASO 5: Inicializar proyecto Node.js
 # =============================================
-if [ "$PASO_ACTUAL" -lt 5 ]; then
-    clear
-    mensaje_titulo "PASO 5/12 - INICIALIZANDO PROYECTO NODE.JS"
+clear
+mensaje_titulo "PASO 5/12 - INICIALIZANDO PROYECTO NODE.JS"
 
-    cd ~/comidabot
-    if [ ! -f "package.json" ]; then
-        npm init -y
-        verificar_paso "package.json creado" "Error al crear package.json" "Paso 5 - npm init"
-    else
-        mensaje_ok "package.json ya existe"
-    fi
+cd ~/comidabot
+npm init -y
+verificar_paso "package.json creado" "Error al crear package.json" "Paso 5 - npm init"
 
-    # Modificar package.json para tipo módulo (necesario para Baileys)
-    cat > package.json << 'EOF'
+# Modificar package.json para tipo módulo (necesario para Baileys)
+cat > package.json << 'EOF'
 {
   "name": "comidabot",
   "version": "1.0.0",
@@ -242,96 +183,56 @@ if [ "$PASO_ACTUAL" -lt 5 ]; then
 }
 EOF
 
-    mensaje_ok "package.json configurado con type: module"
-    actualizar_estado 5
-else
-    mensaje_ok "Paso 5 ya completado. Continuando..."
-fi
+mensaje_ok "package.json configurado con type: module"
 
 # =============================================
 # PASO 6: Instalar dependencias de Node.js
 # =============================================
-if [ "$PASO_ACTUAL" -lt 6 ]; then
-    clear
-    mensaje_titulo "PASO 6/12 - INSTALANDO DEPENDENCIAS NODE.JS"
+clear
+mensaje_titulo "PASO 6/12 - INSTALANDO DEPENDENCIAS NODE.JS"
 
-    mensaje "Verificando dependencias npm..."
+mensaje "Instalando paquetes npm (esto puede tomar varios minutos)..."
 
-    if [ ! -d "node_modules/@whiskeysockets/baileys" ]; then
-        mensaje "Instalando @whiskeysockets/baileys..."
-        npm install @whiskeysockets/baileys
-        verificar_paso "@whiskeysockets/baileys instalado" "Error al instalar baileys" "Paso 6 - baileys"
-    else
-        mensaje_ok "@whiskeysockets/baileys ya está instalado"
-    fi
+npm install @whiskeysockets/baileys
+verificar_paso "@whiskeysockets/baileys instalado" "Error al instalar baileys" "Paso 6 - baileys"
 
-    if [ ! -d "node_modules/pino" ]; then
-        npm install pino
-    fi
-    
-    if [ ! -d "node_modules/sqlite3" ]; then
-        npm install sqlite3
-    fi
-    
-    if [ ! -d "node_modules/node-fetch" ]; then
-        npm install node-fetch
-    fi
-    
-    if [ ! -d "node_modules/fluent-ffmpeg" ]; then
-        npm install fluent-ffmpeg
-    fi
-    
-    if [ ! -d "node_modules/qrcode-terminal" ]; then
-        npm install qrcode-terminal
-    fi
-    
-    if [ ! -d "node_modules/audio-decode" ]; then
-        npm install audio-decode
-    fi
+npm install pino
+npm install sqlite3
+npm install node-fetch
+npm install fluent-ffmpeg
+npm install qrcode-terminal
+npm install audio-decode
 
-    verificar_paso "Dependencias npm instaladas" "Error al instalar dependencias npm" "Paso 6 - npm install"
-    actualizar_estado 6
-else
-    mensaje_ok "Paso 6 ya completado. Continuando..."
-fi
+verificar_paso "Dependencias npm instaladas" "Error al instalar dependencias npm" "Paso 6 - npm install"
 
 # =============================================
 # PASO 7: Crear estructura de directorios
 # =============================================
-if [ "$PASO_ACTUAL" -lt 7 ]; then
-    clear
-    mensaje_titulo "PASO 7/12 - CREANDO ESTRUCTURA DE DIRECTORIOS"
+clear
+mensaje_titulo "PASO 7/12 - CREANDO ESTRUCTURA DE DIRECTORIOS"
 
-    cd ~/comidabot
-    mkdir -p src
-    mkdir -p src/baileys
-    mkdir -p src/whisper
-    mkdir -p src/database
-    mkdir -p src/spintax
-    mkdir -p src/utils
-    mkdir -p auth_info
-    mkdir -p logs
-    mkdir -p audios
+cd ~/comidabot
+mkdir -p src
+mkdir -p src/baileys
+mkdir -p src/whisper
+mkdir -p src/database
+mkdir -p src/spintax
+mkdir -p src/utils
+mkdir -p auth_info
+mkdir -p logs
+mkdir -p audios
 
-    verificar_paso "Estructura de directorios creada" "Error al crear directorios" "Paso 7 - Directorios"
-    actualizar_estado 7
-else
-    mensaje_ok "Paso 7 ya completado. Continuando..."
-fi
+verificar_paso "Estructura de directorios creada" "Error al crear directorios" "Paso 7 - Directorios"
 
 # =============================================
 # PASO 8: Crear base de datos SQLite
 # =============================================
-if [ "$PASO_ACTUAL" -lt 8 ]; then
-    clear
-    mensaje_titulo "PASO 8/12 - CREANDO BASE DE DATOS"
+clear
+mensaje_titulo "PASO 8/12 - CREANDO BASE DE DATOS"
 
-    cd ~/comidabot
+cd ~/comidabot
 
-    if [ -f "comidabot.db" ]; then
-        mensaje_ok "Base de datos ya existe"
-    else
-        cat > crear_bd.sql << 'EOF'
+cat > crear_bd.sql << 'EOF'
 -- Negocio
 CREATE TABLE IF NOT EXISTS negocio (
     id INTEGER PRIMARY KEY DEFAULT 1,
@@ -439,27 +340,18 @@ INSERT INTO spintax (categoria, variante) VALUES
 ('confirmacion_no', '{No|Nel|No gracias|Mejor no}');
 EOF
 
-        sqlite3 comidabot.db < crear_bd.sql
-        verificar_paso "Base de datos creada correctamente" "Error al crear base de datos" "Paso 8 - Base de datos"
-    fi
-    actualizar_estado 8
-else
-    mensaje_ok "Paso 8 ya completado. Continuando..."
-fi
+sqlite3 comidabot.db < crear_bd.sql
+verificar_paso "Base de datos creada correctamente" "Error al crear base de datos" "Paso 8 - Base de datos"
 
 # =============================================
 # PASO 9: Crear script de configuración inicial
 # =============================================
-if [ "$PASO_ACTUAL" -lt 9 ]; then
-    clear
-    mensaje_titulo "PASO 9/12 - CONFIGURACIÓN INICIAL"
+clear
+mensaje_titulo "PASO 9/12 - CONFIGURACIÓN INICIAL"
 
-    cd ~/comidabot
+cd ~/comidabot
 
-    if [ -f "config.json" ]; then
-        mensaje_ok "Archivo config.json ya existe"
-    else
-        cat > config.json << 'EOF'
+cat > config.json << 'EOF'
 {
     "numero_bot": "",
     "numero_dueño": "",
@@ -472,116 +364,66 @@ if [ "$PASO_ACTUAL" -lt 9 ]; then
     "db_path": "./comidabot.db"
 }
 EOF
-        mensaje_ok "Archivo config.json creado"
-    fi
-    actualizar_estado 9
-else
-    mensaje_ok "Paso 9 ya completado. Continuando..."
-fi
+
+mensaje_ok "Archivo config.json creado"
 
 # =============================================
-# PASO 10: Solicitar números y emparejamiento (CORREGIDO)
+# PASO 10: Solicitar números (CORREGIDO - AHORA ESPERA)
 # =============================================
-if [ "$PASO_ACTUAL" -lt 10 ]; then
-    clear
-    mensaje_titulo "PASO 10/12 - CONFIGURACIÓN DE NÚMEROS"
+clear
+mensaje_titulo "PASO 10/12 - CONFIGURACIÓN DE NÚMEROS"
 
-    # Limpiar buffer antes de leer
-    limpiar_buffer
+# Limpiar buffer antes de leer
+limpiar_buffer
 
-    cd ~/comidabot
+echo ""
+echo -e "${BLANCO}Ingresa el número del BOT (el que atenderá clientes)${NC}"
+echo -e "Formato: 5215512345678 (código de país + número sin espacios)"
+echo -e "${AMARILLO}Ejemplo: 5215551234567${NC}"
+echo -n "> "
 
-    # Verificar si los números ya están configurados
-    NUMERO_BOT_ACTUAL=$(grep -o '"numero_bot": "[^"]*"' config.json | cut -d'"' -f4)
-    NUMERO_DUENO_ACTUAL=$(grep -o '"numero_dueño": "[^"]*"' config.json | cut -d'"' -f4)
-
-    if [ -n "$NUMERO_BOT_ACTUAL" ] && [ -n "$NUMERO_DUENO_ACTUAL" ]; then
-        mensaje_ok "Números ya configurados: Bot: $NUMERO_BOT_ACTUAL, Dueño: $NUMERO_DUENO_ACTUAL"
-        echo ""
-        echo -e "${BLANCO}¿Deseas cambiarlos? (s/n)${NC}"
+# Leer con validación - ESPERA HASTA QUE SE INGRESE ALGO
+while true; do
+    read NUMERO_BOT
+    if [ -n "$NUMERO_BOT" ]; then
+        break
+    else
         echo -n "> "
-        read -r CAMBIAR
-        if [[ $CAMBIAR =~ ^[Ss]$ ]]; then
-            # Continuar para pedir nuevos números
-            :
-        else
-            mensaje "Usando configuración existente"
-            actualizar_estado 10
-            # Saltar al paso 11
-        fi
     fi
+done
 
-    if [ "$PASO_ACTUAL" -lt 10 ]; then
-        echo ""
-        echo -e "${BLANCO}Ingresa el número del BOT (el que atenderá clientes)${NC}"
-        echo -e "Formato: 5215512345678 (código de país + número sin espacios)"
-        echo -e "${AMARILLO}Ejemplo: 5215551234567${NC}"
+echo ""
+echo -e "${BLANCO}Ingresa el número del DUEÑO (el que dará instrucciones)${NC}"
+echo -e "Formato: 5215512345678"
+echo -n "> "
+
+while true; do
+    read NUMERO_DUENO
+    if [ -n "$NUMERO_DUENO" ]; then
+        break
+    else
         echo -n "> "
-        
-        # Leer con validación mejorada
-        while true; do
-            read -r NUMERO_BOT
-            if [ -n "$NUMERO_BOT" ]; then
-                # Validar formato básico (solo números, al menos 10 dígitos)
-                if [[ "$NUMERO_BOT" =~ ^[0-9]{10,15}$ ]]; then
-                    break
-                else
-                    mensaje_advertencia "Formato inválido. Debe contener solo números (10-15 dígitos)"
-                    echo -n "> "
-                fi
-            else
-                mensaje_advertencia "El número no puede estar vacío"
-                echo -n "> "
-            fi
-        done
-
-        echo ""
-        echo -e "${BLANCO}Ingresa el número del DUEÑO (el que dará instrucciones)${NC}"
-        echo -e "Formato: 5215512345678"
-        echo -n "> "
-
-        while true; do
-            read -r NUMERO_DUENO
-            if [ -n "$NUMERO_DUENO" ]; then
-                if [[ "$NUMERO_DUENO" =~ ^[0-9]{10,15}$ ]]; then
-                    break
-                else
-                    mensaje_advertencia "Formato inválido. Debe contener solo números (10-15 dígitos)"
-                    echo -n "> "
-                fi
-            else
-                mensaje_advertencia "El número no puede estar vacío"
-                echo -n "> "
-            fi
-        done
-
-        # Guardar números en config.json
-        sed -i "s/\"numero_bot\": \"\"/\"numero_bot\": \"$NUMERO_BOT\"/" config.json
-        sed -i "s/\"numero_dueño\": \"\"/\"numero_dueño\": \"$NUMERO_DUENO\"/" config.json
-
-        # Insertar número de dueño en base de datos como autorizado
-        sqlite3 comidabot.db "INSERT OR IGNORE INTO autorizados (numero, rol) VALUES ('$NUMERO_DUENO', 'dueño');"
-
-        mensaje_ok "Números guardados correctamente"
-        actualizar_estado 10
     fi
-else
-    mensaje_ok "Paso 10 ya completado. Continuando..."
-fi
+done
+
+# Guardar números en config.json
+sed -i "s/\"numero_bot\": \"\"/\"numero_bot\": \"$NUMERO_BOT\"/" config.json
+sed -i "s/\"numero_dueño\": \"\"/\"numero_dueño\": \"$NUMERO_DUENO\"/" config.json
+
+# Insertar número de dueño en base de datos como autorizado
+sqlite3 comidabot.db "INSERT OR IGNORE INTO autorizados (numero, rol) VALUES ('$NUMERO_DUENO', 'dueño');"
+
+mensaje_ok "Números guardados correctamente"
 
 # =============================================
 # PASO 11: Crear script de emparejamiento
 # =============================================
-if [ "$PASO_ACTUAL" -lt 11 ]; then
-    clear
-    mensaje_titulo "PASO 11/12 - PREPARANDO EMPAREJAMIENTO WHATSAPP"
+clear
+mensaje_titulo "PASO 11/12 - PREPARANDO EMPAREJAMIENTO WHATSAPP"
 
-    cd ~/comidabot
+cd ~/comidabot
 
-    if [ -f "emparejar.js" ]; then
-        mensaje_ok "Script de emparejamiento ya existe"
-    else
-        cat > emparejar.js << 'EOF'
+cat > emparejar.js << 'EOF'
 import makeWASocket from '@whiskeysockets/baileys';
 import { useMultiFileAuthState } from '@whiskeysockets/baileys';
 import pino from 'pino';
@@ -642,26 +484,17 @@ emparejar().catch(err => {
 });
 EOF
 
-        mensaje_ok "Script de emparejamiento creado"
-    fi
-    actualizar_estado 11
-else
-    mensaje_ok "Paso 11 ya completado. Continuando..."
-fi
+mensaje_ok "Script de emparejamiento creado"
 
 # =============================================
 # PASO 12: Crear script principal del bot
 # =============================================
-if [ "$PASO_ACTUAL" -lt 12 ]; then
-    clear
-    mensaje_titulo "PASO 12/12 - CREANDO SCRIPT PRINCIPAL"
+clear
+mensaje_titulo "PASO 12/12 - CREANDO SCRIPT PRINCIPAL"
 
-    cd ~/comidabot
+cd ~/comidabot
 
-    if [ -f "bot.js" ]; then
-        mensaje_ok "Script principal ya existe"
-    else
-        cat > bot.js << 'EOF'
+cat > bot.js << 'EOF'
 import makeWASocket from '@whiskeysockets/baileys';
 import { useMultiFileAuthState } from '@whiskeysockets/baileys';
 import pino from 'pino';
@@ -738,18 +571,12 @@ async function startBot() {
 startBot().catch(err => console.error('Error:', err));
 EOF
 
-        verificar_paso "Script principal creado" "Error al crear bot.js" "Paso 12 - Script principal"
-    fi
-    actualizar_estado 12
-else
-    mensaje_ok "Paso 12 ya completado. Continuando..."
-fi
+verificar_paso "Script principal creado" "Error al crear bot.js" "Paso 12 - Script principal"
 
 # =============================================
 # CREAR ARCHIVO README
 # =============================================
-if [ ! -f "README.md" ]; then
-    cat > README.md << 'EOF'
+cat > README.md << 'EOF'
 # COMIDABOT - Bot de WhatsApp para Comidas Corridas
 
 ## Instalación (un solo comando)
