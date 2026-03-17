@@ -13,7 +13,7 @@ AZUL='\033[0;34m'
 MAGENTA='\033[0;35m'
 CIAN='\033[0;36m'
 BLANCO='\033[1;37m'
-NC='\033[0m'
+NC='\033[0m' # Sin color
 
 # Función para mostrar mensajes
 mensaje() {
@@ -108,6 +108,7 @@ pkg install -y \
 
 verificar_paso "Dependencias base instaladas" "Error al instalar dependencias base" "Paso 2 - Dependencias base"
 
+# Verificar versiones instaladas
 mensaje "Node.js: $(node --version)"
 mensaje "npm: $(npm --version)"
 mensaje "Python: $(python --version 2>&1)"
@@ -140,7 +141,7 @@ verificar_paso "Directorio creado en ~/comidabot" "Error al crear directorio" "P
 # PASO 4: Instalar Whisper.cpp
 # =============================================
 clear
-mensaje_titulo "PASO 4/12 - INSTALANDO WHISPER.CPP"
+mensaje_titulo "PASO 4/12 - INSTALANDO WHISPER.CPP (RECONOCIMIENTO DE VOZ)"
 
 mensaje "Clonando repositorio de Whisper.cpp..."
 git clone https://github.com/ggerganov/whisper.cpp.git
@@ -152,7 +153,7 @@ mensaje "Compilando Whisper.cpp (esto puede tomar varios minutos)..."
 make -j4
 verificar_paso "Compilación completada" "Error al compilar Whisper.cpp" "Paso 4 - Compilación"
 
-mensaje "Descargando modelo TINY (75MB)..."
+mensaje "Descargando modelo TINY (75MB - el más liviano)..."
 bash ./models/download-ggml-model.sh tiny
 verificar_paso "Modelo TINY descargado" "Error al descargar modelo TINY" "Paso 4 - Descarga modelo"
 
@@ -169,6 +170,7 @@ cd ~/comidabot
 npm init -y
 verificar_paso "package.json creado" "Error al crear package.json" "Paso 5 - npm init"
 
+# Modificar package.json para tipo módulo (necesario para Baileys)
 cat > package.json << 'EOF'
 {
   "name": "comidabot",
@@ -399,9 +401,11 @@ if [ -z "$NUMERO_DUENO" ]; then
     exit 1
 fi
 
+# Guardar números en config.json
 sed -i "s/\"numero_bot\": \"\"/\"numero_bot\": \"$NUMERO_BOT\"/" config.json
 sed -i "s/\"numero_dueño\": \"\"/\"numero_dueño\": \"$NUMERO_DUENO\"/" config.json
 
+# Insertar número de dueño en base de datos como autorizado
 sqlite3 comidabot.db "INSERT OR IGNORE INTO autorizados (numero, rol) VALUES ('$NUMERO_DUENO', 'dueño');"
 
 mensaje_ok "Números guardados correctamente"
@@ -420,6 +424,7 @@ import { useMultiFileAuthState } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import fs from 'fs';
 
+// Leer configuración
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
 const numeroBot = config.numero_bot;
 
@@ -430,13 +435,14 @@ async function emparejar() {
     console.log(`Número del Bot: ${numeroBot}\n`);
 
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-
+    
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: false,
+        printQRInTerminal: false, // No usaremos QR
     });
 
+    // Solicitar código de emparejamiento
     setTimeout(async () => {
         const code = await sock.requestPairingCode(numeroBot);
         console.log('\x1b[32m%s\x1b[0m', '🔑 CÓDIGO DE EMPAREJAMIENTO:');
@@ -450,10 +456,12 @@ async function emparejar() {
         console.log('4. Ingresa este código exactamente como aparece\n');
     }, 1000);
 
+    // Evento cuando se actualizan las credenciales
     sock.ev.on('creds.update', saveCreds);
 
+    // Evento cuando se conecta exitosamente
     sock.ev.on('connection.update', (update) => {
-        const { connection } = update;
+        const { connection, lastDisconnect } = update;
         if (connection === 'open') {
             console.log('\x1b[32m%s\x1b[0m', '✅ ¡EMPAREJAMIENTO EXITOSO!');
             console.log('El Bot ya está conectado y listo para usar.\n');
@@ -487,22 +495,29 @@ import { useMultiFileAuthState } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import fs from 'fs';
 import sqlite3 from 'sqlite3';
+import { exec } from 'child_process';
+import { fileURLToPath } from 'url';
+import path from 'path';
 
+// Configuración
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
 const db = new sqlite3.Database(config.db_path);
 
+// Función para delay aleatorio
 const delay = (min, max) => new Promise(resolve => 
     setTimeout(resolve, Math.floor(Math.random() * (max - min + 1) + min))
 );
 
+// Función para activar typing
 const sendTyping = async (sock, jid, time) => {
     await sock.sendPresenceUpdate('composing', jid);
     await delay(time, time);
 };
 
+// Procesar mensajes entrantes
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-
+    
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
@@ -513,24 +528,33 @@ async function startBot() {
     sock.ev.on('messages.upsert', async ({ messages }) => {
         const m = messages[0];
         if (!m.message) return;
-
+        
         const from = m.key.remoteJid;
         const text = m.message.conversation || m.message.extendedTextMessage?.text || '';
         const isAudio = m.message.audioMessage ? true : false;
-
+        
         console.log(`Mensaje de ${from}: ${text}`);
-
+        
+        // Verificar si es número autorizado (dueño)
         db.get('SELECT * FROM autorizados WHERE numero = ?', [from.split('@')[0]], async (err, autorizado) => {
             if (err) console.error(err);
-
+            
             if (isAudio && autorizado) {
+                // Procesar audio del dueño
                 await sendTyping(sock, from, 5000);
                 await sock.sendMessage(from, { text: '🎤 Procesando tu audio...' });
+                
+                // Aquí se integrará Whisper para transcribir
+                // Por ahora solo un placeholder
                 await delay(3000, 5000);
                 await sock.sendMessage(from, { text: 'Audio procesado (placeholder)' });
+                
             } else if (!isAudio) {
+                // Responder a clientes
                 await sendTyping(sock, from, config.typing_min * 1000);
                 await delay(config.delay_min * 1000, config.delay_max * 1000);
+                
+                // Respuesta de prueba
                 await sock.sendMessage(from, { text: '🤖 Bot funcionando correctamente\nPronto implementaremos las respuestas reales' });
             }
         });
@@ -544,9 +568,12 @@ EOF
 
 verificar_paso "Script principal creado" "Error al crear bot.js" "Paso 12 - Script principal"
 
+# =============================================
+# CREAR ARCHIVO README
+# =============================================
 cat > README.md << 'EOF'
 # COMIDABOT - Bot de WhatsApp para Comidas Corridas
 
 ## Instalación (un solo comando)
 ```bash
-curl -sSL https://raw.githubusercontent.com/antoniochp-mitiendawa/comidabot/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/TU_USUARIO/comidabot/main/install.sh | bash
