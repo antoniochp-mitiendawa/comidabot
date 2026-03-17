@@ -5,6 +5,9 @@
 # Un solo comando, todo listo
 # ====================================
 
+# Eliminar caracteres Windows si existen
+sed -i 's/\r$//' "$0" 2>/dev/null
+
 clear
 echo "===================================="
 echo "  COMIVOZ - INSTALACIÓN AUTOMÁTICA"
@@ -32,8 +35,8 @@ mkdir -p auth_info
 # PASO 4: Descargar modelo Vosk (español - 40MB)
 echo "[4/9] Descargando modelo de voz Vosk español (40MB)..."
 cd models
-wget https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip
-unzip vosk-model-small-es-0.42.zip
+wget -q --show-progress https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip
+unzip -q vosk-model-small-es-0.42.zip
 rm vosk-model-small-es-0.42.zip
 mv vosk-model-small-es-0.42 vosk-model
 cd ..
@@ -44,7 +47,7 @@ cat > package.json << 'EOF'
 {
   "name": "comivoz",
   "version": "1.0.0",
-  "description": "Sistema de menú por voz para comida corrida",
+  "description": "Sistema de menú por voz",
   "main": "bot.js",
   "dependencies": {
     "@whiskeysockets/baileys": "^6.5.0",
@@ -61,16 +64,11 @@ npm install
 echo "[6/9] Configuración inicial (solo una vez)"
 echo "----------------------------------------"
 echo ""
-echo -n "📱 Número de la dueña (10 dígitos, ej: 5512345678): "
-read NUMERO_DUENA
-echo -n "🤖 Número del bot (10 dígitos, ej: 5512345678): "
-read NUMERO_BOT
-echo -n "🏠 Nombre del negocio (ej: Lupita Comidas): "
-read NOMBRE_NEGOCIO
-echo -n "📍 Dirección (ej: Av. Principal #123): "
-read DIRECCION
-echo -n "🕒 Horario (ej: 8am a 5pm): "
-read HORARIO
+read -p "📱 Número de la dueña (10 dígitos, ej: 5512345678): " NUMERO_DUENA
+read -p "🤖 Número del bot (10 dígitos, ej: 5512345678): " NUMERO_BOT
+read -p "🏠 Nombre del negocio (ej: Lupita Comidas): " NOMBRE_NEGOCIO
+read -p "📍 Dirección (ej: Av. Principal #123): " DIRECCION
+read -p "🕒 Horario (ej: 8am a 5pm): " HORARIO
 echo ""
 
 # PASO 7: Guardar configuración
