@@ -1,46 +1,51 @@
 #!/bin/bash
 
 # ====================================
-# COMIVOZ - INSTALACIÓN COMPLETA
-# Un solo comando - TODO INCLUIDO
+# COMIVOZ - INSTALACIÓN MAESTRA
+# Corregida para compatibilidad total
 # ====================================
 
-# Limpiar caracteres Windows si existen
-sed -i 's/\r$//' "$0"
+# 1. Autolimpieza de formato (Crucial para evitar errores \r)
+if [[ $(type -p sed) ]]; then
+    sed -i 's/\r$//' "$0" 2>/dev/null
+fi
 
 clear
 echo "===================================="
 echo "  COMIVOZ - INSTALACIÓN COMPLETA"
-echo "  Un solo comando - TODO INCLUIDO"
+echo "  Optimizada y sin errores"
 echo "===================================="
-echo ""
 
-echo "[1/7] Configurando Termux..."
-termux-setup-storage
-pkg update -y
-pkg upgrade -y
+# 2. Configuración de Repositorios y Actualización
+echo "[1/7] Configurando el entorno..."
+pkg update -y && pkg upgrade -y
 
-echo "[2/7] Instalando lo necesario..."
-pkg install -y nodejs ffmpeg wget
+# 3. Instalación de Dependencias de Sistema
+echo "[2/7] Instalando herramientas base..."
+pkg install -y nodejs ffmpeg wget sqlite3 unzip
 
-echo "[3/7] Creando carpetas..."
-mkdir -p comivoz
+# 4. Estructura de Archivos
+echo "[3/7] Preparando directorios..."
+mkdir -p comivoz/auth_info
 cd comivoz
-mkdir -p database
-mkdir -p auth_info
 
-echo "[4/7] Descargando modelo de voz..."
-wget -O vosk.zip https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip
-unzip vosk.zip
-rm vosk.zip
-mv vosk-model-small-es-0.42 modelo-voz
+# 5. Descarga de Modelo de Voz (Vosk)
+echo "[4/7] Descargando modelo de voz (esto puede tardar)..."
+if [ ! -d "modelo-voz" ]; then
+    wget -q --show-progress -O vosk.zip https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip
+    unzip -q vosk.zip
+    rm vosk.zip
+    mv vosk-model-small-es-0.42 modelo-voz
+fi
 
-echo "[5/7] Instalando dependencias..."
+# 6. Inicialización de Node.js y Dependencias
+echo "[5/7] Instalando dependencias del bot..."
 npm init -y
 npm install @whiskeysockets/baileys sqlite3 vosk fluent-ffmpeg
 
-echo "[6/7] Configuración inicial"
-echo "------------------------"
+# 7. Configuración del Negocio
+echo ""
+echo "--- CONFIGURACIÓN DEL NEGOCIO ---"
 read -p "Número de la dueña (10 dígitos): " DUEÑA
 read -p "Número del bot (10 dígitos): " BOT
 read -p "Nombre del negocio: " NOMBRE
@@ -53,44 +58,26 @@ cat > config.json << EOF
   "bot": "$BOT",
   "nombre": "$NOMBRE",
   "direccion": "$DIR",
-  "horario": "$HORARIO",
-  "domicilio": false,
-  "domicilio_tel": ""
+  "horario": "$HORARIO"
 }
 EOF
 
-echo "[7/7] Creando base de datos..."
+# 8. Creación de Base de Datos
+echo "[7/7] Inicializando base de datos..."
 sqlite3 comida.db << SQL
-CREATE TABLE desayunos (id INTEGER PRIMARY KEY, nombre TEXT, precio INTEGER, disponible INTEGER DEFAULT 1);
-CREATE TABLE primer_tiempo (id INTEGER PRIMARY KEY, nombre TEXT, disponible INTEGER DEFAULT 1);
-CREATE TABLE segundo_tiempo (id INTEGER PRIMARY KEY, nombre TEXT, disponible INTEGER DEFAULT 1);
-CREATE TABLE tercer_tiempo (id INTEGER PRIMARY KEY, nombre TEXT, disponible INTEGER DEFAULT 1);
-CREATE TABLE bebida (id INTEGER PRIMARY KEY, nombre TEXT, disponible INTEGER DEFAULT 1);
-CREATE TABLE postre (id INTEGER PRIMARY KEY, nombre TEXT, disponible INTEGER DEFAULT 1);
-CREATE TABLE precio_comida (id INTEGER PRIMARY KEY, precio INTEGER);
-CREATE TABLE domicilio (id INTEGER PRIMARY KEY, activo INTEGER DEFAULT 0, telefono TEXT);
+CREATE TABLE IF NOT EXISTS desayunos (id INTEGER PRIMARY KEY, nombre TEXT, precio INTEGER, disponible INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS primer_tiempo (id INTEGER PRIMARY KEY, nombre TEXT, disponible INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS segundo_tiempo (id INTEGER PRIMARY KEY, nombre TEXT, disponible INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS tercer_tiempo (id INTEGER PRIMARY KEY, nombre TEXT, disponible INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS bebida (id INTEGER PRIMARY KEY, nombre TEXT, disponible INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS postre (id INTEGER PRIMARY KEY, nombre TEXT, disponible INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS precio_comida (id INTEGER PRIMARY KEY, precio INTEGER);
+CREATE TABLE IF NOT EXISTS domicilio (id INTEGER PRIMARY KEY, activo INTEGER DEFAULT 0, telefono TEXT);
 SQL
 
 echo ""
 echo "===================================="
-echo "✅ TODO LISTO"
+echo "✅ INSTALACIÓN FINALIZADA CON ÉXITO"
 echo "===================================="
 echo ""
-
-echo "Ahora ve a WhatsApp > Dispositivos vinculados"
-echo "Presiona ENTER cuando estés listo"
-read
-
-node -e "
-const { makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
-async function main() {
-  const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-  const sock = makeWASocket({ auth: state, browser: ['ComiVoz', 'Safari', '1.0.0'] });
-  sock.ev.on('creds.update', saveCreds);
-  setTimeout(() => {
-    console.log('\\n🔑 CÓDIGO: ' + state.creds.registrationId);
-    process.exit(0);
-  }, 5000);
-}
-main();
-"
+echo "Para iniciar el bot, usa: node bot.js"
