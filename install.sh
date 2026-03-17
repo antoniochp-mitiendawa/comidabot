@@ -2,7 +2,7 @@
 
 # =============================================
 # INSTALADOR DE COMIDABOT PARA TERMUX
-# Versión: 1.1 - Con detección de instalación previa
+# Versión: 1.0
 # =============================================
 
 # Colores para mensajes
@@ -56,64 +56,14 @@ esperar_usuario() {
     read
 }
 
-# Función para limpiar el buffer de entrada
+# Función para limpiar el buffer de entrada (solo para el Paso 10)
 limpiar_buffer() {
     while read -r -t 0; do read -r; done
 }
 
 # =============================================
-# SISTEMA DE DETECCIÓN DE INSTALACIÓN PREVIA
-# =============================================
-clear
-mensaje_titulo "VERIFICANDO INSTALACIÓN EXISTENTE"
-
-ARCHIVO_ESTADO="$HOME/comidabot/instalacion_estado.txt"
-INSTALACION_PREVIA=false
-PASO_ALCANZADO=0
-
-if [ -f "$ARCHIVO_ESTADO" ]; then
-    INSTALACION_PREVIA=true
-    PASO_ALCANZADO=$(cat "$ARCHIVO_ESTADO")
-    mensaje "Se detectó una instalación previa (Paso alcanzado: $PASO_ALCANZADO/12)"
-    echo ""
-    echo -e "${BLANCO}¿Qué deseas hacer?${NC}"
-    echo -e "  ${VERDE}1${NC} - Reinstalar todo desde cero"
-    echo -e "  ${VERDE}2${NC} - Continuar desde el paso $PASO_ALCANZADO"
-    echo -e "  ${VERDE}3${NC} - Reparar componentes específicos"
-    echo -n "> "
-    read OPCION
-    
-    case $OPCION in
-        1)
-            mensaje "Reinstalando todo desde cero..."
-            rm -rf "$HOME/comidabot"
-            rm -f "$ARCHIVO_ESTADO"
-            INSTALACION_PREVIA=false
-            PASO_ALCANZADO=0
-            ;;
-        2)
-            mensaje "Continuando desde el paso $PASO_ALCANZADO..."
-            ;;
-        3)
-            mensaje "Opción de reparación no implementada aún. Continuando desde paso $PASO_ALCANZADO..."
-            ;;
-        *)
-            mensaje_error "Opción no válida. Saliendo."
-            exit 1
-            ;;
-    esac
-    esperar_usuario
-fi
-
-# Función para actualizar estado
-actualizar_estado() {
-    echo "$1" > "$ARCHIVO_ESTADO"
-}
-
-# =============================================
 # INICIO DE LA INSTALACIÓN
 # =============================================
-if [ "$INSTALACION_PREVIA" = false ] || [ "$PASO_ALCANZADO" -lt 1 ]; then
 clear
 mensaje_titulo "COMIDABOT - INSTALACIÓN EN TERMUX"
 echo ""
@@ -130,24 +80,19 @@ echo -e "  • No cierres Termux durante la instalación"
 echo -e "  • El proceso puede tomar 10-20 minutos"
 echo ""
 esperar_usuario
-fi
 
 # =============================================
 # PASO 1: Actualizar Termux
 # =============================================
-if [ "$INSTALACION_PREVIA" = false ] || [ "$PASO_ALCANZADO" -lt 1 ]; then
 clear
 mensaje_titulo "PASO 1/12 - ACTUALIZANDO TERMUX"
 mensaje "Actualizando repositorios y paquetes básicos..."
 pkg update -y && pkg upgrade -y
 verificar_paso "Termux actualizado correctamente" "Error al actualizar Termux" "Paso 1 - Actualización"
-actualizar_estado 1
-fi
 
 # =============================================
 # PASO 2: Instalar dependencias base
 # =============================================
-if [ "$INSTALACION_PREVIA" = false ] || [ "$PASO_ALCANZADO" -lt 2 ]; then
 clear
 mensaje_titulo "PASO 2/12 - INSTALANDO DEPENDENCIAS BASE"
 mensaje "Instalando paquetes esenciales..."
@@ -172,41 +117,25 @@ verificar_paso "Dependencias base instaladas" "Error al instalar dependencias ba
 mensaje "Node.js: $(node --version)"
 mensaje "npm: $(npm --version)"
 mensaje "Python: $(python --version 2>&1)"
-actualizar_estado 2
-fi
 
 # =============================================
 # PASO 3: Crear directorio del proyecto
 # =============================================
-if [ "$INSTALACION_PREVIA" = false ] || [ "$PASO_ALCANZADO" -lt 3 ]; then
 clear
 mensaje_titulo "PASO 3/12 - CREANDO DIRECTORIO DEL PROYECTO"
 
 cd ~
 if [ -d "comidabot" ]; then
-    mensaje_advertencia "El directorio comidabot ya existe. ¿Deseas eliminarlo? (s/n)"
-    limpiar_buffer
-    read -n 1 -r
-    echo ""
-    if [[ $REPLY =~ ^[Ss]$ ]]; then
-        rm -rf comidabot
-        mensaje "Directorio eliminado"
-    else
-        mensaje_error "No se puede continuar con un directorio existente"
-        exit 1
-    fi
+    mensaje_advertencia "El directorio comidabot ya existe. Continuando con la instalación..."
+else
+    mkdir -p ~/comidabot
+    mensaje_ok "Directorio creado en ~/comidabot"
 fi
-
-mkdir -p ~/comidabot
 cd ~/comidabot
-verificar_paso "Directorio creado en ~/comidabot" "Error al crear directorio" "Paso 3 - Directorio"
-actualizar_estado 3
-fi
 
 # =============================================
 # PASO 4: Instalar Whisper.cpp
 # =============================================
-if [ "$INSTALACION_PREVIA" = false ] || [ "$PASO_ALCANZADO" -lt 4 ]; then
 clear
 mensaje_titulo "PASO 4/12 - INSTALANDO WHISPER.CPP (RECONOCIMIENTO DE VOZ)"
 
@@ -226,13 +155,10 @@ verificar_paso "Modelo TINY descargado" "Error al descargar modelo TINY" "Paso 4
 
 cd ~/comidabot
 mensaje_ok "Whisper.cpp instalado correctamente"
-actualizar_estado 4
-fi
 
 # =============================================
 # PASO 5: Inicializar proyecto Node.js
 # =============================================
-if [ "$INSTALACION_PREVIA" = false ] || [ "$PASO_ALCANZADO" -lt 5 ]; then
 clear
 mensaje_titulo "PASO 5/12 - INICIALIZANDO PROYECTO NODE.JS"
 
@@ -259,13 +185,10 @@ cat > package.json << 'EOF'
 EOF
 
 mensaje_ok "package.json configurado con type: module"
-actualizar_estado 5
-fi
 
 # =============================================
 # PASO 6: Instalar dependencias de Node.js
 # =============================================
-if [ "$INSTALACION_PREVIA" = false ] || [ "$PASO_ALCANZADO" -lt 6 ]; then
 clear
 mensaje_titulo "PASO 6/12 - INSTALANDO DEPENDENCIAS NODE.JS"
 
@@ -282,13 +205,10 @@ npm install qrcode-terminal
 npm install audio-decode
 
 verificar_paso "Dependencias npm instaladas" "Error al instalar dependencias npm" "Paso 6 - npm install"
-actualizar_estado 6
-fi
 
 # =============================================
 # PASO 7: Crear estructura de directorios
 # =============================================
-if [ "$INSTALACION_PREVIA" = false ] || [ "$PASO_ALCANZADO" -lt 7 ]; then
 clear
 mensaje_titulo "PASO 7/12 - CREANDO ESTRUCTURA DE DIRECTORIOS"
 
@@ -304,13 +224,10 @@ mkdir -p logs
 mkdir -p audios
 
 verificar_paso "Estructura de directorios creada" "Error al crear directorios" "Paso 7 - Directorios"
-actualizar_estado 7
-fi
 
 # =============================================
 # PASO 8: Crear base de datos SQLite
 # =============================================
-if [ "$INSTALACION_PREVIA" = false ] || [ "$PASO_ALCANZADO" -lt 8 ]; then
 clear
 mensaje_titulo "PASO 8/12 - CREANDO BASE DE DATOS"
 
@@ -426,13 +343,10 @@ EOF
 
 sqlite3 comidabot.db < crear_bd.sql
 verificar_paso "Base de datos creada correctamente" "Error al crear base de datos" "Paso 8 - Base de datos"
-actualizar_estado 8
-fi
 
 # =============================================
 # PASO 9: Crear script de configuración inicial
 # =============================================
-if [ "$INSTALACION_PREVIA" = false ] || [ "$PASO_ALCANZADO" -lt 9 ]; then
 clear
 mensaje_titulo "PASO 9/12 - CONFIGURACIÓN INICIAL"
 
@@ -453,13 +367,10 @@ cat > config.json << 'EOF'
 EOF
 
 mensaje_ok "Archivo config.json creado"
-actualizar_estado 9
-fi
 
 # =============================================
 # PASO 10: Solicitar números (CORREGIDO)
 # =============================================
-if [ "$INSTALACION_PREVIA" = false ] || [ "$PASO_ALCANZADO" -lt 10 ]; then
 clear
 mensaje_titulo "PASO 10/12 - CONFIGURACIÓN DE NÚMEROS"
 
@@ -472,13 +383,9 @@ echo -e "Formato: 5215512345678 (código de país + número sin espacios)"
 echo -e "${AMARILLO}Ejemplo: 5215551234567${NC}"
 echo -n "> "
 
-# Leer con timeout para asegurar que espera
-if ! read -t 60 NUMERO_BOT; then
-    mensaje_error "Tiempo de espera agotado. No se ingresó el número."
-    exit 1
-fi
+# Leer con validación
+read NUMERO_BOT
 
-# Verificar que no esté vacío
 while [ -z "$NUMERO_BOT" ]; do
     mensaje_advertencia "El número no puede estar vacío. Intenta de nuevo:"
     echo -n "> "
@@ -506,13 +413,10 @@ sed -i "s/\"numero_dueño\": \"\"/\"numero_dueño\": \"$NUMERO_DUENO\"/" config.
 sqlite3 comidabot.db "INSERT OR IGNORE INTO autorizados (numero, rol) VALUES ('$NUMERO_DUENO', 'dueño');"
 
 mensaje_ok "Números guardados correctamente"
-actualizar_estado 10
-fi
 
 # =============================================
 # PASO 11: Crear script de emparejamiento
 # =============================================
-if [ "$INSTALACION_PREVIA" = false ] || [ "$PASO_ALCANZADO" -lt 11 ]; then
 clear
 mensaje_titulo "PASO 11/12 - PREPARANDO EMPAREJAMIENTO WHATSAPP"
 
@@ -580,13 +484,10 @@ emparejar().catch(err => {
 EOF
 
 mensaje_ok "Script de emparejamiento creado"
-actualizar_estado 11
-fi
 
 # =============================================
 # PASO 12: Crear script principal del bot
 # =============================================
-if [ "$INSTALACION_PREVIA" = false ] || [ "$PASO_ALCANZADO" -lt 12 ]; then
 clear
 mensaje_titulo "PASO 12/12 - CREANDO SCRIPT PRINCIPAL"
 
@@ -670,13 +571,10 @@ startBot().catch(err => console.error('Error:', err));
 EOF
 
 verificar_paso "Script principal creado" "Error al crear bot.js" "Paso 12 - Script principal"
-actualizar_estado 12
-fi
 
 # =============================================
 # CREAR ARCHIVO README
 # =============================================
-if [ "$INSTALACION_PREVIA" = false ] || [ "$PASO_ALCANZADO" -lt 12 ]; then
 cat > README.md << 'EOF'
 # COMIDABOT - Bot de WhatsApp para Comidas Corridas
 
