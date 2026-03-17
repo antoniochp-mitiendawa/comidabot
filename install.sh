@@ -1,69 +1,65 @@
 #!/bin/bash
 
 # ====================================
-# COMIVOZ - INSTALACIÓN MAESTRA
-# Corregida para compatibilidad total
+# COMIVOZ - INSTALACIÓN PROFESIONAL
 # ====================================
 
-# 1. Autolimpieza de formato (Crucial para evitar errores \r)
-if [[ $(type -p sed) ]]; then
-    sed -i 's/\r$//' "$0" 2>/dev/null
-fi
-
+# Limpieza inmediata de caracteres basura
+# [cite: 31]
 clear
 echo "===================================="
-echo "  COMIVOZ - INSTALACIÓN COMPLETA"
-echo "  Optimizada y sin errores"
+echo "  COMIVOZ - INSTALACIÓN INICIADA"
 echo "===================================="
 
-# 2. Configuración de Repositorios y Actualización
-echo "[1/7] Configurando el entorno..."
-pkg update -y && pkg upgrade -y
+# 1. Preparación del Entorno (Fuerza Bruta)
+# Instalamos wget primero para asegurar las descargas
+echo "[1/7] Actualizando sistema..."
+yes | pkg update
+yes | pkg upgrade
+pkg install -y wget nodejs ffmpeg sqlite3 unzip ncurses-utils
 
-# 3. Instalación de Dependencias de Sistema
-echo "[2/7] Instalando herramientas base..."
-pkg install -y nodejs ffmpeg wget sqlite3 unzip
+# 2. Estructura de archivos
+# [cite: 31]
+echo "[2/7] Creando carpetas..."
+mkdir -p ~/comivoz/auth_info
+cd ~/comivoz
 
-# 4. Estructura de Archivos
-echo "[3/7] Preparando directorios..."
-mkdir -p comivoz/auth_info
-cd comivoz
-
-# 5. Descarga de Modelo de Voz (Vosk)
-echo "[4/7] Descargando modelo de voz (esto puede tardar)..."
+# 3. Descarga del Modelo de Voz (Vosk)
+# [cite: 31]
+echo "[3/7] Instalando modelo de voz..."
 if [ ! -d "modelo-voz" ]; then
-    wget -q --show-progress -O vosk.zip https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip
-    unzip -q vosk.zip
-    rm vosk.zip
+    wget -O vosk.zip https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip
+    unzip vosk.zip && rm vosk.zip
     mv vosk-model-small-es-0.42 modelo-voz
 fi
 
-# 6. Inicialización de Node.js y Dependencias
-echo "[5/7] Instalando dependencias del bot..."
+# 4. Dependencias Node.js
+# [cite: 31]
+echo "[4/7] Instalando dependencias de IA..."
 npm init -y
 npm install @whiskeysockets/baileys sqlite3 vosk fluent-ffmpeg
 
-# 7. Configuración del Negocio
+# 5. Configuración Interactiva
+# [cite: 32]
 echo ""
-echo "--- CONFIGURACIÓN DEL NEGOCIO ---"
-read -p "Número de la dueña (10 dígitos): " DUEÑA
-read -p "Número del bot (10 dígitos): " BOT
-read -p "Nombre del negocio: " NOMBRE
-read -p "Dirección: " DIR
-read -p "Horario: " HORARIO
+echo "--- DATOS DEL NEGOCIO ---"
+printf "Número de la dueña: "; read DUEÑA
+printf "Nombre del negocio: "; read NOMBRE
+printf "Dirección: "; read DIR
+printf "Horario: "; read HORARIO
 
 cat > config.json << EOF
 {
   "dueña": "$DUEÑA",
-  "bot": "$BOT",
   "nombre": "$NOMBRE",
   "direccion": "$DIR",
   "horario": "$HORARIO"
 }
 EOF
 
-# 8. Creación de Base de Datos
-echo "[7/7] Inicializando base de datos..."
+# 6. Base de Datos
+# [cite: 32, 33, 34, 35, 36, 37, 38]
+echo "[6/7] Configurando base de datos..."
 sqlite3 comida.db << SQL
 CREATE TABLE IF NOT EXISTS desayunos (id INTEGER PRIMARY KEY, nombre TEXT, precio INTEGER, disponible INTEGER DEFAULT 1);
 CREATE TABLE IF NOT EXISTS primer_tiempo (id INTEGER PRIMARY KEY, nombre TEXT, disponible INTEGER DEFAULT 1);
@@ -77,7 +73,5 @@ SQL
 
 echo ""
 echo "===================================="
-echo "✅ INSTALACIÓN FINALIZADA CON ÉXITO"
+echo "✅ INSTALACIÓN COMPLETA"
 echo "===================================="
-echo ""
-echo "Para iniciar el bot, usa: node bot.js"
