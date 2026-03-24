@@ -29,23 +29,31 @@ async function iniciarBot() {
         browser: ["Ubuntu", "Chrome", "20.0.04"], 
     });
 
-    // Proceso de Vinculación (Pairing Code)
+    // CONFIGURACIÓN INICIAL (Solo si no está registrado)
     if (!sock.authState.creds.registered) {
-        console.log("\n--- CONFIGURACION DE VINCULACION (DESDE CERO) ---");
-        const numeroInput = await question('Introduce tu número de WhatsApp (ej: 5215512345678): ');
-        const numeroLimpio = numeroInput.replace(/[^0-9]/g, '');
+        console.log("\n--- CONFIGURACIÓN DE IDENTIDAD ---");
         
-        // Guardamos este número como dueño automáticamente
-        db.dueño = numeroLimpio + "@s.whatsapp.net";
+        // 1. Número del Bot (para el Pairing)
+        const numBotInput = await question('1. Introduce el número del BOT (ej: 5215512345678): ');
+        const numBotLimpio = numBotInput.replace(/[^0-9]/g, '');
+        db.bot_num = numBotLimpio + "@s.whatsapp.net";
+
+        // 2. Número del Propietario (el que manda audios)
+        const numPropInput = await question('2. Introduce el número del PROPIETARIO (puede ser el mismo): ');
+        const numPropLimpio = numPropInput.replace(/[^0-9]/g, '');
+        db.propietario_num = numPropLimpio + "@s.whatsapp.net";
+
+        // Guardar configuración
         fs.writeFileSync("./base_datos.json", JSON.stringify(db, null, 2));
+        console.log(`[+] Registrado: Bot (${db.bot_num}) | Propietario (${db.propietario_num})`);
 
         try {
-            const codigo = await sock.requestPairingCode(numeroLimpio);
+            const codigo = await sock.requestPairingCode(numBotLimpio);
             console.log("\n************************************");
             console.log("TU CODIGO DE VINCULACION ES: " + codigo); 
             console.log("************************************\n");
         } catch (error) {
-            console.log("Error en vinculación: ", error);
+            console.log("Error: ", error);
         }
     }
 
@@ -55,34 +63,39 @@ async function iniciarBot() {
         const { connection } = update;
         if (connection === 'close') iniciarBot();
         else if (connection === 'open') {
-            console.log("\n[!] BOT CONECTADO Y BLINDADO LOCALMENTE\n");
+            console.log("\n[!] BOT ACTIVADO Y ESCUCHANDO LOCALMENTE\n");
         }
     });
 
-    // Escucha de mensajes y audios
     sock.ev.on('messages.upsert', async ({ messages }) => {
         const m = messages[0];
-        if (!m.message || m.key.fromMe) return;
+        if (!m.message) return;
 
         const idRemitente = m.key.remoteJid;
-        const esDueño = idRemitente === db.dueño;
+        
+        // RECONOCIMIENTO DE AUTORIDAD (Bot mismo o Propietario Externo)
+        const esAutoridad = (idRemitente === db.bot_num || idRemitente === db.propietario_num);
         const mensajeTipo = Object.keys(m.message)[0];
 
-        // LÓGICA PARA EL DUEÑO (Reconocimiento de Audio/Voz)
-        if (esDueño) {
+        if (esAutoridad) {
+            // Si es audio, confirmamos recepción (el procesado local viene después)
             if (mensajeTipo === 'audioMessage') {
-                await sock.sendMessage(idRemitente, { text: "He recibido tu audio, Jefe. Estoy procesando la información localmente..." });
-                // Aquí se integrará la librería de transcripción local en el siguiente paso
+                await sock.sendMessage(idRemitente, { text: "Audio recibido, Propietario. Iniciando procesamiento local de información..." });
+            } 
+            // Comando de prueba en texto
+            else {
+                const texto = m.message.conversation || m.message.extendedTextMessage?.text || "";
+                if (texto.toLowerCase() === 'test') {
+                    await sock.sendMessage(idRemitente, { text: "✅ Identidad confirmada. Tienes permisos de Administrador." });
+                }
             }
         } 
         
-        // LÓGICA PARA CLIENTES (Información)
+        // LÓGICA PARA CLIENTES
         else {
             const textoCliente = m.message.conversation || m.message.extendedTextMessage?.text || "";
             if (textoCliente.toLowerCase().includes("hola") || textoCliente.toLowerCase().includes("menu")) {
-                let respuesta = `*${db.nombre_negocio}*\n\n`;
-                respuesta += `🍴 *Menú de hoy:* ${db.menu}\n`;
-                respuesta += `🕒 *Horario:* ${db.horario}\n`;
+                let respuesta = `*${db.nombre_negocio}*\n\n🍴 *Menú de hoy:* ${db.menu}\n🕒 *Horario:* ${db.horario}`;
                 await sock.sendMessage(idRemitente, { text: respuesta });
             }
         }
