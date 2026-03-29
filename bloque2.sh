@@ -7,7 +7,6 @@
 
 echo -e "\n\e[1;32m[+] Iniciando FASE DE VINCULACIÓN (Bloque 2)...\e[0m"
 
-mkdir -p $HOME/comidabot
 cd $HOME/comidabot
 
 # 1. Crear base de datos inicial si no existe
@@ -22,38 +21,46 @@ cat << 'EOF' > config.json
 EOF
 fi
 
-# 2. Generar el script index.js con blindaje de terminal
+# 2. Generar el script index.js con Lógica de Conexión Blindada
 cat << 'EOF' > index.js
 const { default: makeWASocket, useMultiFileAuthState, delay, fetchLatestBaileysVersion, DisconnectReason } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const fs = require("fs");
 const readline = require("readline");
 
-// Interfaz global blindada
-const rl = readline.createInterface({ 
-    input: process.stdin, 
-    output: process.stdout,
-    terminal: true 
-});
+// Función para capturar datos ANTES de arrancar el socket
+async function prepararDatos() {
+    let config = JSON.parse(fs.readFileSync("./config.json"));
+    
+    // Si ya tenemos los números, no preguntamos nada
+    if (config.botNumber && config.ownerNumber) return config;
 
-const question = (text) => new Promise((resolve) => rl.question(text, resolve));
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const question = (text) => new Promise((resolve) => rl.question(text, resolve));
+
+    console.log("\n\x1b[1;32m--- CONFIGURACIÓN DE SEGURIDAD ---\x1b[0m");
+    
+    if (!config.botNumber) {
+        const nBot = await question("👉 Introduce el número del BOT (521...): ");
+        config.botNumber = nBot.trim();
+    }
+    
+    if (!config.ownerNumber) {
+        const nDueño = await question("👉 Introduce el número del DUEÑO (521...): ");
+        config.ownerNumber = nDueño.trim();
+    }
+
+    fs.writeFileSync("./config.json", JSON.stringify(config, null, 2));
+    rl.close(); // Cerramos la interfaz para que no choque con Baileys
+    return config;
+}
 
 async function iniciarBot() {
+    // CAPTURA PREVIA: Esto garantiza que no haya ERR_USE_AFTER_CLOSE
+    const config = await prepararDatos();
+    
     const { state, saveCreds } = await useMultiFileAuthState('sesion_auth');
     const { version } = await fetchLatestBaileysVersion();
-    let config = JSON.parse(fs.readFileSync("./config.json"));
-
-    // --- PASO 1: CAPTURA PREVIA DE DATOS (Para evitar ERR_USE_AFTER_CLOSE) ---
-    if (!state.creds.registered && !config.botNumber) {
-        console.log("\n\x1b[1;32m--- CONFIGURACIÓN INICIAL ---\x1b[0m");
-        const numBot = await question("👉 Introduce el número del BOT (521...): ");
-        config.botNumber = numBot.trim();
-        
-        const numDueño = await question("👉 Introduce el número del DUEÑO (521...): ");
-        config.ownerNumber = numDueño.trim();
-        
-        fs.writeFileSync("./config.json", JSON.stringify(config, null, 2));
-    }
 
     const sock = makeWASocket({
         version,
@@ -65,15 +72,16 @@ async function iniciarBot() {
 
     sock.ev.on("creds.update", saveCreds);
 
-    // --- PASO 2: SOLICITUD DE CÓDIGO DE EMPAREJAMIENTO ---
+    // PASO 1: VINCULACIÓN POR CÓDIGO
     if (!sock.authState.creds.registered) {
-        await delay(3000);
+        console.log("\n\x1b[1;33m[!] Generando código de emparejamiento...\x1b[0m");
+        await delay(5000);
         try {
             const codigo = await sock.requestPairingCode(config.botNumber);
             console.log(`\n\x1b[1;33m🔑 CÓDIGO DE VINCULACIÓN:\x1b[0m \x1b[1;32m${codigo}\x1b[0m`);
             console.log("\x1b[1;36m[i] Ingrésalo en tu WhatsApp ahora.\x1b[0m\n");
         } catch (e) {
-            console.log("\x1b[1;31m[!] Error. Verifica que el número sea correcto.\x1b[0m");
+            console.log("\x1b[1;31m[!] Error. Reinicia el script.\x1b[0m");
             process.exit(1);
         }
     }
@@ -97,12 +105,11 @@ async function iniciarBot() {
         const jidRemoto = msg.key.remoteJid;
         const texto = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toUpperCase();
 
-        // Omitir grupos
         if (jidRemoto.endsWith("@g.us")) return;
 
         let conf = JSON.parse(fs.readFileSync("./config.json"));
 
-        // --- PASO 3: REGISTRO DE ID DEL DUEÑO ---
+        // PASO 2: REGISTRO DE ID DEL DUEÑO (JID)
         if (texto === "CONFIGURAR" && !conf.isConfigured) {
             if (jidRemoto.includes(conf.ownerNumber)) {
                 conf.ownerJID = jidRemoto;
@@ -119,6 +126,6 @@ async function iniciarBot() {
 iniciarBot();
 EOF
 
-# 3. Lanzamiento
+# 3. Lanzamiento con acceso a terminal
 echo -e "\e[1;32m[+] Ejecutando Motor de Conexión...\e[0m"
 node index.js
