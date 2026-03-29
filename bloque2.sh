@@ -19,15 +19,20 @@ cat << 'EOF' > config.json
 }
 EOF
 
-# 2. Generar el script index.js con la lógica de persistencia del proyecto anterior
+# 2. Generar el script index.js con la corrección de flujo para Termux
 cat << 'EOF' > index.js
 const { default: makeWASocket, useMultiFileAuthState, delay, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const fs = require("fs");
 const readline = require("readline");
 
-// Interfaz de lectura global para evitar el cierre de la terminal
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+// CORRECCIÓN: Interfaz con manejo de terminal explícito para evitar ERR_USE_AFTER_CLOSE
+const rl = readline.createInterface({ 
+    input: process.stdin, 
+    output: process.stdout,
+    terminal: true 
+});
+
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
 async function iniciarBot() {
@@ -47,8 +52,9 @@ async function iniciarBot() {
     // PASO 1: SOLICITAR NÚMERO DEL BOT (Solo si no está registrado)
     if (!sock.authState.creds.registered) {
         console.log("\n\x1b[1;32m--- PASO 1: VINCULACIÓN DEL BOT ---\x1b[0m");
-        // Pausa de seguridad para estabilizar la terminal
         await delay(5000); 
+        
+        // CORRECCIÓN: Captura limpia del número
         const numeroBot = await question("👉 Introduce el número del BOT (521...): ");
         
         try {
@@ -67,7 +73,6 @@ async function iniciarBot() {
         if (connection === "open") {
             console.log("\n\x1b[1;32m✅ BOT CONECTADO EXITOSAMENTE\x1b[0m");
             
-            // PASO 2: SOLICITAR NÚMERO DEL DUEÑO
             let config = JSON.parse(fs.readFileSync("./config.json"));
             if (!config.ownerNumber) {
                 console.log("\n\x1b[1;32m--- PASO 2: REGISTRO DEL DUEÑO ---\x1b[0m");
@@ -87,14 +92,11 @@ async function iniciarBot() {
         const jidRemoto = msg.key.remoteJid;
         const texto = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toUpperCase();
 
-        // FILTRO DE GRUPOS: El bot solo escucha mensajes directos
         if (jidRemoto.endsWith("@g.us")) return;
 
         let config = JSON.parse(fs.readFileSync("./config.json"));
 
-        // PASO 4: EXTRACCIÓN DEL JID REAL DEL DUEÑO
         if (texto === "CONFIGURAR" && !config.isConfigured) {
-            // Verificar que el mensaje provenga del número registrado en el Paso 2
             if (jidRemoto.includes(config.ownerNumber)) {
                 config.ownerJID = jidRemoto;
                 config.isConfigured = true;
