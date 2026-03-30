@@ -1,36 +1,77 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/bin/bash
 
-# ==========================================
-# BLOQUE 0: SANEAMIENTO Y WAKE LOCK (BASE)
-# PROYECTO: COMIDABOT - INSTALACIÓN DESDE CERO
-# ==========================================
+# === SCRIPT DE INSTALACIÓN PARA COMIDABOT ===
+# Ejecutar en Termux después de clonar el repositorio
 
-echo -e "\n\e[1;32m[+] Activando Wake Lock (Mantener despierto)...\e[0m"
-termux-wake-lock
+echo "======================================"
+echo "   COMIDABOT - INSTALACIÓN COMPLETA"
+echo "======================================"
+echo ""
 
-echo -e "\e[1;34m[+] Configurando Espejos Oficiales de Termux...\e[0m"
-# Forzamos los repositorios principales para evitar errores de enlace (Linker errors)
-printf "deb https://packages.termux.dev/apt/termux-main/ stable main" > $PREFIX/etc/apt/sources.list
+# Paso 1: Actualizar Termux
+echo "[1/8] Actualizando Termux..."
+pkg update -y && pkg upgrade -y
+echo "✅ Termux actualizado"
+echo ""
 
-# Evitar preguntas manuales durante la actualización
-export DEBIAN_FRONTEND=noninteractive
-APT_OPTS="-y -o Dpkg::Options::='--force-confold' -o Dpkg::Options::='--force-confnew'"
+# Paso 2: Instalar herramientas base
+echo "[2/8] Instalando herramientas base (git, nodejs, python, ffmpeg)..."
+pkg install git nodejs-lts python ffmpeg sox opus-tools tmux -y
+echo "✅ Herramientas base instaladas"
+echo ""
 
-echo -e "\e[1;34m[+] Actualizando base de datos de paquetes...\e[0m"
-apt update $APT_OPTS
+# Paso 3: Instalar pip y vosk (transcripción de voz local)
+echo "[3/8] Instalando Vosk para reconocimiento de voz offline..."
+pip install vosk
+echo "✅ Vosk instalado"
+echo ""
 
-echo -e "\e[1;34m[+] Sincronizando librerías de seguridad (SSL/CA)...\e[0m"
-# Actualizamos primero lo que rompe a curl
-apt install openssl ca-certificates $APT_OPTS
+# Paso 4: Crear directorio para el modelo de voz
+echo "[4/8] Descargando modelo de español para Vosk..."
+mkdir -p ~/comidabot/model
+cd ~/comidabot/model
+if [ ! -f "vosk-model-small-es-0.42.zip" ]; then
+    wget https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip
+    unzip vosk-model-small-es-0.42.zip
+    mv vosk-model-small-es-0.42/* .
+    rmdir vosk-model-small-es-0.42
+    rm vosk-model-small-es-0.42.zip
+fi
+echo "✅ Modelo de español descargado"
+cd ~/comidabot
+echo ""
 
-echo -e "\e[1;34m[+] Ejecutando Upgrade Completo del Sistema...\e[0m"
-apt full-upgrade $APT_OPTS
+# Paso 5: Inicializar proyecto Node.js
+echo "[5/8] Inicializando proyecto Node.js..."
+npm init -y
+echo "✅ Proyecto inicializado"
+echo ""
 
-echo -e "\e[1;34m[+] Instalando herramientas esenciales de red...\e[0m"
-apt install curl wget git -y
+# Paso 6: Instalar dependencias de Node.js
+echo "[6/8] Instalando dependencias de Node.js (Baileys, SQLite, etc.)..."
+npm install @whiskeysockets/baileys qrcode-terminal pino sqlite3 wav @mapbox/node-pre-gyp
+echo "✅ Dependencias instaladas"
+echo ""
 
-echo -e "\n\e[1;32m------------------------------------------\e[0m"
-echo -e "\e[1;32m BLOQUE 0: SISTEMA BASE CONSOLIDADO\e[0m"
-echo -e "\e[1;32m El comando 'curl' ahora es estable.\e[0m"
-echo -e "\e[1;32m------------------------------------------\e[0m"
-echo -e "\e[1;33mPróximo paso: Bloque 1 (Nodejs y Baileys).\e[0m\n"
+# Paso 7: Crear directorios necesarios
+echo "[7/8] Creando directorios para sesión y base de datos..."
+mkdir -p auth_info
+mkdir -p db
+echo "✅ Directorios creados"
+echo ""
+
+# Paso 8: Dar permisos de ejecución al bot
+echo "[8/8] Dando permisos de ejecución..."
+chmod +x bot.js
+echo "✅ Permisos asignados"
+echo ""
+
+echo "======================================"
+echo "   INSTALACIÓN COMPLETA"
+echo "======================================"
+echo ""
+echo "Para iniciar el bot, ejecuta:"
+echo "  node bot.js"
+echo ""
+echo "Asegúrate de tener el archivo bot.js en el mismo directorio"
+echo ""
