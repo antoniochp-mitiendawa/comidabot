@@ -2,7 +2,7 @@
 
 // ============================================
 // COMIDABOT - Bot de WhatsApp para Comida Corrida
-// Versión: 1.0.3 (con pairing code corregido)
+// Versión: 1.0.4 (corregido: descarga de audio y whisper)
 // ============================================
 
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, delay, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
@@ -34,7 +34,7 @@ let precioFijoComida = null;
 const AUTH_DIR = './auth_info';
 const DB_DIR = './db';
 const TEMP_AUDIO_DIR = './temp_audio';
-const WHISPER_CLI = 'whisper-cli';
+const WHISPER_CLI = '/data/data/com.termux/files/home/.local/bin/whisper-cli';
 const WHISPER_MODEL = '/data/data/com.termux/files/home/whisper.cpp/models/ggml-base.bin';
 
 let db;
@@ -123,7 +123,7 @@ function limpiarDia() {
 }
 
 // ============================================
-// TRANSCRIPCIÓN DE VOZ
+// TRANSCRIPCIÓN DE VOZ (CORREGIDO)
 // ============================================
 
 async function transcribirAudio(bufferAudio) {
@@ -133,20 +133,24 @@ async function transcribirAudio(bufferAudio) {
     
     if (!fs.existsSync(TEMP_AUDIO_DIR)) fs.mkdirSync(TEMP_AUDIO_DIR);
     fs.writeFileSync(tempOpus, bufferAudio);
+    
+    // Convertir de opus a wav
     await execAsync(`ffmpeg -i ${tempOpus} -ar 16000 -ac 1 -c:a pcm_s16le ${tempWav} -y`);
     
     try {
+        // Ejecutar whisper-cli con ruta completa
         await execAsync(`${WHISPER_CLI} -m ${WHISPER_MODEL} -f ${tempWav} -otxt -l es`);
         let texto = '';
         if (fs.existsSync(tempTxt)) {
             texto = fs.readFileSync(tempTxt, 'utf8').trim();
         }
-        fs.unlinkSync(tempOpus);
-        fs.unlinkSync(tempWav);
+        // Limpiar archivos temporales
+        if (fs.existsSync(tempOpus)) fs.unlinkSync(tempOpus);
+        if (fs.existsSync(tempWav)) fs.unlinkSync(tempWav);
         if (fs.existsSync(tempTxt)) fs.unlinkSync(tempTxt);
         return texto.toLowerCase();
     } catch (error) {
-        console.error('Error en transcripción:', error);
+        console.error('Error en transcripción:', error.message);
         if (fs.existsSync(tempOpus)) fs.unlinkSync(tempOpus);
         if (fs.existsSync(tempWav)) fs.unlinkSync(tempWav);
         if (fs.existsSync(tempTxt)) fs.unlinkSync(tempTxt);
@@ -401,7 +405,6 @@ async function startBot() {
         } else if (connection === 'open') {
             console.log("✅ Bot conectado exitosamente");
             
-            // Configuración del dueño si no existe
             if (!adminID) {
                 console.log("\n==========================================");
                 console.log("⚙️ CONFIGURACIÓN INICIAL - DUEÑO");
@@ -435,10 +438,8 @@ async function startBot() {
             messageText = msg.message.extendedTextMessage.text;
         } else if (msg.message.audioMessage) {
             esVoz = true;
-            const stream = await sock.downloadMediaMessage(msg);
-            const chunks = [];
-            for await (const chunk of stream) chunks.push(chunk);
-            const buffer = Buffer.concat(chunks);
+            // CORRECCIÓN: descargar audio correctamente
+            const buffer = await sock.downloadMediaMessage(msg.message.audioMessage);
             messageText = await transcribirAudio(buffer);
             console.log(`🎤 Transcripción: ${messageText}`);
         } else {
@@ -457,11 +458,6 @@ async function startBot() {
         
         await procesarMensaje(sock, msg, sender, messageText, esVoz);
     });
-    
-    // ============================================
-    // PAIRING CODE - FUERA DEL EVENTO connection.update
-    // (siguiendo el patrón del proyecto funcional)
-    // ============================================
     
     if (!sock.authState.creds.registered) {
         console.log("\n==========================================");
