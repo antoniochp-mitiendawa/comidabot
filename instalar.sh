@@ -55,7 +55,7 @@ npm init -y
 echo "✅ Proyecto inicializado"
 echo ""
 
-# Paso 7: Instalar dependencias de Node.js (AGREGADO: node-nlp)
+# Paso 7: Instalar dependencias de Node.js (incluyendo node-nlp)
 echo "[6/10] Instalando dependencias de Node.js..."
 npm install @whiskeysockets/baileys qrcode-terminal pino yskj-sqlite-android wav @mapbox/node-pre-gyp node-nlp
 echo "✅ Dependencias instaladas"
