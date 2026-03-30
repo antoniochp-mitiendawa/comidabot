@@ -2,7 +2,7 @@
 
 // ============================================
 // COMIDABOT - Bot de WhatsApp para Comida Corrida
-// Versión: 2.0.0 (con NLP + cola + delay humano + spintax + emojis dinámicos)
+// Versión: 2.0.1 (CORREGIDO - vinculación original)
 // ============================================
 
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, delay, fetchLatestBaileysVersion, downloadMediaMessage } = require('@whiskeysockets/baileys');
@@ -26,7 +26,7 @@ const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
 let adminID = null;
 let modoCliente = false;
-let rubroNegocio = 'general'; // comida, peluqueria, taller, etc.
+let rubroNegocio = 'general';
 let horarioCierre = null;
 let db;
 let colaMensajes = [];
@@ -34,7 +34,6 @@ let procesandoCola = false;
 let contadorRespuestasPorMinuto = 0;
 let ultimoResetContador = Date.now();
 
-// Directorios
 const AUTH_DIR = './auth_info';
 const DB_DIR = './db';
 const TEMP_AUDIO_DIR = './temp_audio';
@@ -42,7 +41,7 @@ const WHISPER_CLI = '/data/data/com.termux/files/home/.local/bin/whisper-cli';
 const WHISPER_MODEL = '/data/data/com.termux/files/home/whisper.cpp/models/ggml-base.bin';
 
 // ============================================
-// SPRINTAX (texto aleatorio)
+// SPRINTAX
 // ============================================
 
 function spintax(texto) {
@@ -53,7 +52,7 @@ function spintax(texto) {
 }
 
 // ============================================
-// EMOJIS DINÁMICOS SEGÚN RUBRO
+// EMOJIS POR RUBRO
 // ============================================
 
 function getEmojisPorRubro() {
@@ -69,7 +68,7 @@ function getEmojisPorRubro() {
 }
 
 // ============================================
-// SALUDO SEGÚN HORARIO
+// SALUDO POR HORARIO
 // ============================================
 
 function getSaludoPorHorario() {
@@ -87,7 +86,6 @@ function initDatabase() {
     if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR);
     db = new Database(path.join(DB_DIR, 'comidabot.db'));
     
-    // Tabla genérica para almacenar cualquier información
     db.exec(`CREATE TABLE IF NOT EXISTS info (
         clave TEXT PRIMARY KEY,
         valor TEXT,
@@ -95,7 +93,6 @@ function initDatabase() {
         fecha TEXT
     )`);
     
-    // Tabla para productos/servicios
     db.exec(`CREATE TABLE IF NOT EXISTS productos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nombre TEXT,
@@ -104,13 +101,11 @@ function initDatabase() {
         fecha TEXT
     )`);
     
-    // Tabla para configuración
     db.exec(`CREATE TABLE IF NOT EXISTS config (
         clave TEXT PRIMARY KEY,
         valor TEXT
     )`);
     
-    // Cargar configuración guardada
     const adminRow = db.prepare("SELECT valor FROM config WHERE clave = 'admin_id'").get();
     if (adminRow) adminID = adminRow.valor;
     
@@ -155,123 +150,64 @@ function guardarConfig(clave, valor) {
 }
 
 // ============================================
-// NLP - ENTRENAMIENTO CON SINÓNIMOS
+// NLP ENTRENAMIENTO
 // ============================================
 
 const nlpManager = new NlpManager({ languages: ['es'], forceNER: true });
 
-// Entrenar intenciones del dueño
 async function entrenarNLP() {
-    // Intención: guardar nombre del negocio
+    // Intenciones del dueño
     nlpManager.addDocument('es', 'el negocio se llama {nombre}', 'negocio.nombre');
     nlpManager.addDocument('es', 'mi tienda se llama {nombre}', 'negocio.nombre');
     nlpManager.addDocument('es', 'mi local se llama {nombre}', 'negocio.nombre');
-    nlpManager.addDocument('es', 'mi emprendimiento se llama {nombre}', 'negocio.nombre');
-    nlpManager.addDocument('es', 'mi cafetería se llama {nombre}', 'negocio.nombre');
-    nlpManager.addDocument('es', 'mi barbería se llama {nombre}', 'negocio.nombre');
-    nlpManager.addDocument('es', 'mi taller se llama {nombre}', 'negocio.nombre');
-    nlpManager.addDocument('es', 'registra el nombre como {nombre}', 'negocio.nombre');
-    nlpManager.addDocument('es', 'el nombre del negocio es {nombre}', 'negocio.nombre');
-    
-    // Intención: guardar ubicación
     nlpManager.addDocument('es', 'estamos en {ubicacion}', 'negocio.ubicacion');
     nlpManager.addDocument('es', 'la dirección es {ubicacion}', 'negocio.ubicacion');
-    nlpManager.addDocument('es', 'nos ubicamos en {ubicacion}', 'negocio.ubicacion');
-    nlpManager.addDocument('es', 'el negocio está en {ubicacion}', 'negocio.ubicacion');
-    nlpManager.addDocument('es', 'mi dirección es {ubicacion}', 'negocio.ubicacion');
-    
-    // Intención: guardar horario
     nlpManager.addDocument('es', 'abrimos de {horario}', 'negocio.horario');
     nlpManager.addDocument('es', 'el horario es {horario}', 'negocio.horario');
-    nlpManager.addDocument('es', 'atendemos de {horario}', 'negocio.horario');
-    nlpManager.addDocument('es', 'nuestro horario de atención es {horario}', 'negocio.horario');
-    
-    // Intención: guardar producto con precio
     nlpManager.addDocument('es', '{producto} cuesta {precio} pesos', 'producto.agregar');
-    nlpManager.addDocument('es', '{producto} vale {precio}', 'producto.agregar');
-    nlpManager.addDocument('es', 'los {producto} cuestan {precio}', 'producto.agregar');
-    nlpManager.addDocument('es', 'tenemos {producto} a {precio}', 'producto.agregar');
-    
-    // Intención: eliminar producto
     nlpManager.addDocument('es', 'elimina {producto}', 'producto.eliminar');
-    nlpManager.addDocument('es', 'borra {producto}', 'producto.eliminar');
-    nlpManager.addDocument('es', 'ya no tenemos {producto}', 'producto.eliminar');
-    
-    // Intención: detectar rubro del negocio
     nlpManager.addDocument('es', 'somos un restaurante', 'negocio.rubro.comida');
-    nlpManager.addDocument('es', 'somos una comida corrida', 'negocio.rubro.comida');
     nlpManager.addDocument('es', 'somos una barbería', 'negocio.rubro.peluqueria');
-    nlpManager.addDocument('es', 'somos una peluquería', 'negocio.rubro.peluqueria');
     nlpManager.addDocument('es', 'somos un taller mecánico', 'negocio.rubro.taller');
-    
-    // Comandos del dueño (modo cliente/dueño)
     nlpManager.addDocument('es', 'activar modo cliente', 'modo.cliente.on');
-    nlpManager.addDocument('es', 'modo cliente', 'modo.cliente.on');
     nlpManager.addDocument('es', 'desactivar modo cliente', 'modo.cliente.off');
     nlpManager.addDocument('es', 'modo dueño', 'modo.cliente.off');
     nlpManager.addDocument('es', 'salir modo cliente', 'modo.cliente.off');
-    nlpManager.addDocument('es', 'activar modo admin', 'modo.cliente.off');
     
     // Preguntas de clientes
     nlpManager.addDocument('es', 'cómo se llama el negocio', 'cliente.pregunta.nombre');
-    nlpManager.addDocument('es', 'cómo se llama tu negocio', 'cliente.pregunta.nombre');
-    nlpManager.addDocument('es', 'qué nombre tiene el negocio', 'cliente.pregunta.nombre');
-    nlpManager.addDocument('es', 'cuál es el nombre', 'cliente.pregunta.nombre');
-    
     nlpManager.addDocument('es', 'dónde estás ubicado', 'cliente.pregunta.ubicacion');
-    nlpManager.addDocument('es', 'dónde está tu negocio', 'cliente.pregunta.ubicacion');
     nlpManager.addDocument('es', 'cuál es tu dirección', 'cliente.pregunta.ubicacion');
-    nlpManager.addDocument('es', 'en qué calle están', 'cliente.pregunta.ubicacion');
-    nlpManager.addDocument('es', 'cómo llegar', 'cliente.pregunta.ubicacion');
-    nlpManager.addDocument('es', 'dónde te ubicas', 'cliente.pregunta.ubicacion');
-    nlpManager.addDocument('es', 'dirección del negocio', 'cliente.pregunta.ubicacion');
-    
     nlpManager.addDocument('es', 'qué horario tienen', 'cliente.pregunta.horario');
-    nlpManager.addDocument('es', 'a qué hora abren', 'cliente.pregunta.horario');
-    nlpManager.addDocument('es', 'cuándo atienden', 'cliente.pregunta.horario');
-    nlpManager.addDocument('es', 'horario de atención', 'cliente.pregunta.horario');
-    
     nlpManager.addDocument('es', 'qué productos tienen', 'cliente.pregunta.productos');
     nlpManager.addDocument('es', 'qué venden', 'cliente.pregunta.productos');
-    nlpManager.addDocument('es', 'qué ofrecen', 'cliente.pregunta.productos');
-    nlpManager.addDocument('es', 'cuál es el menú', 'cliente.pregunta.productos');
-    nlpManager.addDocument('es', 'qué servicios ofrecen', 'cliente.pregunta.productos');
     
-    // Entrenar
     await nlpManager.train();
-    console.log('🧠 NLP entrenado con sinónimos');
+    console.log('🧠 NLP entrenado');
 }
-
-// ============================================
-// PROCESAR MENSAJE CON NLP
-// ============================================
 
 async function procesarConNLP(texto, esAdmin) {
     const result = await nlpManager.process('es', texto);
     const intent = result.intent;
     const entities = result.entities;
     
-    console.log(`🧠 NLP: Intención=${intent}, Entidades=${JSON.stringify(entities)}`);
+    console.log(`🧠 NLP: ${intent}`);
     
-    // Procesar según la intención
     if (intent === 'negocio.nombre' && esAdmin) {
         const nombre = entities.nombre || texto.match(/llama\s+(.+)$/i)?.[1] || texto;
         guardarInfo('nombre_negocio', nombre);
-        return `✅ Nombre del negocio guardado como: ${nombre}`;
+        return `✅ Nombre guardado: ${nombre}`;
     }
-    
     if (intent === 'negocio.ubicacion' && esAdmin) {
         const ubicacion = entities.ubicacion || texto.match(/en\s+(.+)$/i)?.[1] || texto;
         guardarInfo('ubicacion', ubicacion);
         return `✅ Ubicación guardada: ${ubicacion}`;
     }
-    
     if (intent === 'negocio.horario' && esAdmin) {
         const horario = entities.horario || texto.match(/de\s+(.+)$/i)?.[1] || texto;
         guardarInfo('horario', horario);
         return `✅ Horario guardado: ${horario}`;
     }
-    
     if (intent === 'producto.agregar' && esAdmin) {
         const producto = entities.producto || '';
         const precio = entities.precio || '';
@@ -280,63 +216,54 @@ async function procesarConNLP(texto, esAdmin) {
             return `✅ Producto agregado: ${producto} - $${precio}`;
         }
     }
-    
     if (intent === 'producto.eliminar' && esAdmin) {
-        const producto = entities.producto || texto.replace(/elimina|borra|ya no tenemos/i, '').trim();
+        const producto = entities.producto || texto.replace(/elimina|borra/i, '').trim();
         if (producto) {
             eliminarProducto(producto);
             return `✅ Producto eliminado: ${producto}`;
         }
     }
-    
     if (intent === 'negocio.rubro.comida' && esAdmin) {
         rubroNegocio = 'comida';
         guardarConfig('rubro', 'comida');
-        return `✅ Rubro configurado: Restaurante/Comida 🍽️`;
+        return `✅ Rubro: Restaurante 🍽️`;
     }
-    
     if (intent === 'negocio.rubro.peluqueria' && esAdmin) {
         rubroNegocio = 'peluqueria';
         guardarConfig('rubro', 'peluqueria');
-        return `✅ Rubro configurado: Peluquería/Barbería ✂️`;
+        return `✅ Rubro: Peluquería ✂️`;
     }
-    
     if (intent === 'negocio.rubro.taller' && esAdmin) {
         rubroNegocio = 'taller';
         guardarConfig('rubro', 'taller');
-        return `✅ Rubro configurado: Taller Mecánico 🔧`;
+        return `✅ Rubro: Taller 🔧`;
     }
-    
     if (intent === 'modo.cliente.on' && esAdmin) {
         modoCliente = true;
-        return `🧪 Modo cliente activado. Ahora te trataré como cliente para pruebas.`;
+        return `🧪 Modo cliente activado`;
     }
-    
     if (intent === 'modo.cliente.off' && esAdmin) {
         modoCliente = false;
-        return `✅ Modo cliente desactivado. Ahora vuelves a ser el administrador.`;
+        return `✅ Modo cliente desactivado`;
     }
     
-    // Respuestas para clientes (o admin en modo cliente)
+    // Respuestas para clientes
     if (!esAdmin || modoCliente) {
         if (intent === 'cliente.pregunta.nombre') {
             const nombre = obtenerInfo('nombre_negocio');
-            if (nombre) return spintax(`{${getSaludoPorHorario()}|Hola|Qué tal|Saludos}! ${getEmojisPorRubro().principal} El negocio se llama *${nombre}*. ¿Te puedo ayudar con algo más?`);
-            return spintax(`{${getSaludoPorHorario()}|Hola|Qué tal}! ${getEmojisPorRubro().principal} Aún no tengo registrado el nombre del negocio. Pregúntale al dueño.`);
+            if (nombre) return `${getSaludoPorHorario()} ${getEmojisPorRubro().principal} El negocio se llama *${nombre}*`;
+            return `${getSaludoPorHorario()} ${getEmojisPorRubro().principal} Aún no tengo el nombre del negocio`;
         }
-        
         if (intent === 'cliente.pregunta.ubicacion') {
             const ubicacion = obtenerInfo('ubicacion');
-            if (ubicacion) return spintax(`{${getSaludoPorHorario()}|Claro|Por supuesto}! ${getEmojisPorRubro().ubicacion} Nos ubicamos en: *${ubicacion}*. ¡Te esperamos!`);
-            return spintax(`{${getSaludoPorHorario()}|Hola}! ${getEmojisPorRubro().principal} Aún no tengo registrada la ubicación. Pregúntale al dueño.`);
+            if (ubicacion) return `${getSaludoPorHorario()} ${getEmojisPorRubro().ubicacion} Nos ubicamos en: *${ubicacion}*`;
+            return `${getSaludoPorHorario()} Aún no tengo la ubicación registrada`;
         }
-        
         if (intent === 'cliente.pregunta.horario') {
             const horario = obtenerInfo('horario');
-            if (horario) return spintax(`{${getSaludoPorHorario()}|Te cuento|Claro}! ${getEmojisPorRubro().horario} Nuestro horario es: *${horario}*.`);
-            return spintax(`{${getSaludoPorHorario()}|Hola}! ${getEmojisPorRubro().principal} Aún no tengo registrado el horario. Pregúntale al dueño.`);
+            if (horario) return `${getSaludoPorHorario()} ${getEmojisPorRubro().horario} Horario: *${horario}*`;
+            return `${getSaludoPorHorario()} Aún no tengo el horario registrado`;
         }
-        
         if (intent === 'cliente.pregunta.productos') {
             const productos = obtenerProductos();
             if (productos.length > 0) {
@@ -348,15 +275,14 @@ async function procesarConNLP(texto, esAdmin) {
                 });
                 return respuesta;
             }
-            return spintax(`{${getSaludoPorHorario()}|Hola}! ${getEmojisPorRubro().principal} Aún no tengo productos registrados. Pregúntale al dueño.`);
+            return `${getSaludoPorHorario()} Aún no tengo productos registrados`;
         }
     }
-    
-    return null; // No se procesó ninguna intención
+    return null;
 }
 
 // ============================================
-// TRANSCRIPCIÓN DE VOZ (Whisper)
+// TRANSCRIPCIÓN DE VOZ
 // ============================================
 
 async function transcribirAudio(bufferAudio) {
@@ -366,7 +292,6 @@ async function transcribirAudio(bufferAudio) {
     
     if (!fs.existsSync(TEMP_AUDIO_DIR)) fs.mkdirSync(TEMP_AUDIO_DIR);
     fs.writeFileSync(tempOpus, bufferAudio);
-    
     await execAsync(`ffmpeg -i ${tempOpus} -ar 16000 -ac 1 -c:a pcm_s16le ${tempWav} -y`);
     
     try {
@@ -393,15 +318,12 @@ async function transcribirAudio(bufferAudio) {
 // ============================================
 
 async function enviarConDelay(sock, to, texto) {
-    const delayMs = Math.floor(Math.random() * (14000 - 7000 + 1) + 7000); // 7-14 segundos
-    console.log(`⏳ Esperando ${delayMs/1000} segundos antes de responder...`);
-    
-    // Mostrar "escribiendo..."
+    const delayMs = Math.floor(Math.random() * (14000 - 7000 + 1) + 7000);
+    console.log(`⏳ Esperando ${delayMs/1000} segundos...`);
     await sock.sendPresenceUpdate('composing', to);
     await delay(delayMs);
-    
     await sock.sendMessage(to, { text: texto });
-    console.log(`✅ Respuesta enviada después de ${delayMs/1000}s`);
+    console.log(`✅ Respuesta enviada`);
 }
 
 async function procesarCola(sock) {
@@ -410,24 +332,19 @@ async function procesarCola(sock) {
     
     while (colaMensajes.length > 0) {
         const { sock: sockRef, to, texto } = colaMensajes.shift();
-        
-        // Rate limiting: máximo 10 mensajes por minuto
         const ahora = Date.now();
         if (ahora - ultimoResetContador > 60000) {
             contadorRespuestasPorMinuto = 0;
             ultimoResetContador = ahora;
         }
-        
         if (contadorRespuestasPorMinuto >= 10) {
-            console.log('⏸️ Rate limit alcanzado, esperando 30 segundos...');
+            console.log('⏸️ Rate limit, esperando...');
             await delay(30000);
             contadorRespuestasPorMinuto = 0;
         }
-        
         await enviarConDelay(sockRef, to, texto);
         contadorRespuestasPorMinuto++;
     }
-    
     procesandoCola = false;
 }
 
@@ -437,38 +354,34 @@ function agregarACola(sock, to, texto) {
 }
 
 // ============================================
-// PROCESAMIENTO DE MENSAJES (con NLP y respaldo)
+// PROCESAMIENTO DE MENSAJES
 // ============================================
 
 async function procesarMensaje(sock, msg, sender, messageText, esVoz) {
     const esAdmin = (adminID === sender);
     
-    // Si es admin y NO está en modo cliente, intentar procesar con NLP
     if (esAdmin && !modoCliente) {
         const respuestaNLP = await procesarConNLP(messageText, true);
         if (respuestaNLP) {
             agregarACola(sock, sender, respuestaNLP);
             return;
         }
-        // Si NLP no entendió, responder genérico
-        agregarACola(sock, sender, `✅ Instrucción recibida. ${getEmojisPorRubro().positivo} Procesando...`);
+        agregarACola(sock, sender, `✅ Instrucción recibida. ${getEmojisPorRubro().positivo}`);
         return;
     }
     
-    // Cliente (o admin en modo cliente)
     const respuestaNLP = await procesarConNLP(messageText, false);
     if (respuestaNLP) {
         agregarACola(sock, sender, respuestaNLP);
         return;
     }
     
-    // Respuesta por defecto si NLP no entendió
-    const respuestaDefault = spintax(`{${getSaludoPorHorario()}|Hola|Qué tal|Saludos}! ${getEmojisPorRubro().principal} Puedes preguntarme por: el nombre del negocio, ubicación, horario o productos. ¿En qué te ayudo?`);
+    const respuestaDefault = spintax(`{${getSaludoPorHorario()}|Hola|Qué tal}! ${getEmojisPorRubro().principal} Puedo ayudarte con: nombre del negocio, ubicación, horario o productos.`);
     agregarACola(sock, sender, respuestaDefault);
 }
 
 // ============================================
-// INICIO DEL BOT
+// INICIO DEL BOT (CON VINCULACIÓN ORIGINAL)
 // ============================================
 
 async function startBot() {
@@ -489,12 +402,14 @@ async function startBot() {
     
     sock.ev.on('creds.update', saveCreds);
     
+    let vinculacionEnProceso = false;
+    
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
         
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) {
+            if (shouldReconnect && !vinculacionEnProceso) {
                 console.log("🔄 Reconectando...");
                 startBot();
             }
@@ -505,7 +420,6 @@ async function startBot() {
                 console.log("\n==========================================");
                 console.log("⚙️ CONFIGURACIÓN INICIAL - DUEÑO");
                 console.log("==========================================");
-                
                 const numero = await question("📱 Ingresa el número del DUEÑO (admin): ");
                 const numeroCompleto = `${numero}@s.whatsapp.net`;
                 await sock.sendMessage(numeroCompleto, { text: "🔐 Responde para confirmar que eres el administrador" });
@@ -514,7 +428,6 @@ async function startBot() {
                 console.log(`👑 Dueño: ${adminID}`);
                 console.log(`🏢 Rubro: ${rubroNegocio}`);
                 console.log("🎧 Esperando instrucciones por voz...");
-                console.log("💬 Esperando preguntas de clientes...");
             }
         }
     });
@@ -542,18 +455,10 @@ async function startBot() {
                     {},
                     { reuploadRequest: sock.updateMediaMessage }
                 );
-                
                 const chunks = [];
-                for await (const chunk of stream) {
-                    chunks.push(chunk);
-                }
+                for await (const chunk of stream) chunks.push(chunk);
                 const buffer = Buffer.concat(chunks);
-                
-                if (!buffer || buffer.length === 0) {
-                    console.log("⚠️ Buffer de audio vacío");
-                    return;
-                }
-                
+                if (!buffer || buffer.length === 0) return;
                 messageText = await transcribirAudio(buffer);
                 console.log(`🎤 Transcripción: ${messageText}`);
             } catch (error) {
@@ -566,7 +471,6 @@ async function startBot() {
         
         console.log(`📩 De: ${sender.split('@')[0]} | "${messageText}"`);
         
-        // Verificar si es la respuesta de verificación del dueño
         if (adminID === null && sender !== 'status@broadcast') {
             adminID = sender;
             guardarConfig('admin_id', adminID);
@@ -578,16 +482,25 @@ async function startBot() {
         await procesarMensaje(sock, msg, sender, messageText, esVoz);
     });
     
-    if (!sock.authState.creds.registered) {
+    // ==========================================
+    // VINCULACIÓN ORIGINAL (LA QUE FUNCIONABA)
+    // ==========================================
+    if (!fs.existsSync(path.join(AUTH_DIR, 'creds.json'))) {
+        vinculacionEnProceso = true;
         console.log("\n==========================================");
         console.log("🔐 VINCULACIÓN DEL BOT");
         console.log("==========================================");
-        await delay(5000);
+        
+        await delay(3000);
         const numero = await question("📱 Ingresa el número del BOT que quieres vincular (ej. 5215551234567): ");
-        const codigo = await sock.requestPairingCode(numero.trim());
-        console.log(`\n🔑 CÓDIGO DE EMPAREJAMIENTO: ${codigo}`);
-        console.log("📲 Abre WhatsApp, ve a Dispositivos vinculados y escribe este código.\n");
+        
+        console.log("📟 Solicitando código de emparejamiento...");
+        const code = await sock.requestPairingCode(numero);
+        console.log(`🔑 Código de emparejamiento: ${code}`);
+        console.log("📲 Abre WhatsApp, ve a Dispositivos vinculados y escribe este código.");
         console.log("⏳ Esperando vinculación...");
+        
+        vinculacionEnProceso = false;
     }
 }
 
