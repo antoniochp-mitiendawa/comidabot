@@ -2,7 +2,7 @@
 
 // ============================================
 // COMIDABOT - Bot de WhatsApp para Comida Corrida
-// Versión: 1.0.6 (DEFINITIVA - SOLO CORREGIDO AUDIO)
+// Versión: 2.0.0 (con NLP + cola + delay humano + spintax + emojis dinámicos)
 // ============================================
 
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, delay, fetchLatestBaileysVersion, downloadMediaMessage } = require('@whiskeysockets/baileys');
@@ -15,6 +15,7 @@ const { exec } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
 const readline = require('readline');
+const { NlpManager } = require('node-nlp');
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
@@ -25,86 +26,127 @@ const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
 let adminID = null;
 let modoCliente = false;
+let rubroNegocio = 'general'; // comida, peluqueria, taller, etc.
 let horarioCierre = null;
-let horarioDesayunos = { inicio: "07:00", fin: "12:00" };
-let horarioComidas = { inicio: "12:00", fin: "18:00" };
-let precioFijoDesayunos = null;
-let precioFijoComida = null;
+let db;
+let colaMensajes = [];
+let procesandoCola = false;
+let contadorRespuestasPorMinuto = 0;
+let ultimoResetContador = Date.now();
 
+// Directorios
 const AUTH_DIR = './auth_info';
 const DB_DIR = './db';
 const TEMP_AUDIO_DIR = './temp_audio';
 const WHISPER_CLI = '/data/data/com.termux/files/home/.local/bin/whisper-cli';
 const WHISPER_MODEL = '/data/data/com.termux/files/home/whisper.cpp/models/ggml-base.bin';
 
-let db;
+// ============================================
+// SPRINTAX (texto aleatorio)
+// ============================================
+
+function spintax(texto) {
+    return texto.replace(/{([^{}]+)}/g, (match, opciones) => {
+        const choices = opciones.split('|');
+        return choices[Math.floor(Math.random() * choices.length)];
+    });
+}
 
 // ============================================
-// BASE DE DATOS
+// EMOJIS DINÁMICOS SEGÚN RUBRO
+// ============================================
+
+function getEmojisPorRubro() {
+    if (rubroNegocio === 'comida') {
+        return { principal: '🍽️', positivo: '✅', saludo: '🍳', producto: '🥘', ubicacion: '📍', horario: '🕐', oferta: '🎉' };
+    } else if (rubroNegocio === 'peluqueria') {
+        return { principal: '✂️', positivo: '✅', saludo: '💈', producto: '💇', ubicacion: '📍', horario: '🕐', oferta: '✨' };
+    } else if (rubroNegocio === 'taller') {
+        return { principal: '🔧', positivo: '✅', saludo: '🚗', producto: '⚙️', ubicacion: '📍', horario: '🕐', oferta: '🔩' };
+    } else {
+        return { principal: '🤘', positivo: '✅', saludo: '🎸', producto: '🔥', ubicacion: '📍', horario: '🕐', oferta: '⚡' };
+    }
+}
+
+// ============================================
+// SALUDO SEGÚN HORARIO
+// ============================================
+
+function getSaludoPorHorario() {
+    const hora = new Date().getHours();
+    if (hora >= 6 && hora < 12) return spintax('{Buenos días|Buen día|¡Hola! Buenos días|Saludos, buenos días}');
+    if (hora >= 12 && hora < 19) return spintax('{Buenas tardes|Muy buenas tardes|¡Hola! Buenas tardes|Saludos, buenas tardes}');
+    return spintax('{Buenas noches|Muy buenas noches|¡Hola! Buenas noches|Saludos, buenas noches}');
+}
+
+// ============================================
+// BASE DE DATOS DINÁMICA
 // ============================================
 
 function initDatabase() {
     if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR);
-    
     db = new Database(path.join(DB_DIR, 'comidabot.db'));
     
+    // Tabla genérica para almacenar cualquier información
+    db.exec(`CREATE TABLE IF NOT EXISTS info (
+        clave TEXT PRIMARY KEY,
+        valor TEXT,
+        rubro TEXT,
+        fecha TEXT
+    )`);
+    
+    // Tabla para productos/servicios
+    db.exec(`CREATE TABLE IF NOT EXISTS productos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT,
+        precio TEXT,
+        descripcion TEXT,
+        fecha TEXT
+    )`);
+    
+    // Tabla para configuración
     db.exec(`CREATE TABLE IF NOT EXISTS config (
         clave TEXT PRIMARY KEY,
         valor TEXT
     )`);
     
-    db.exec(`CREATE TABLE IF NOT EXISTS desayunos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        producto TEXT,
-        precio TEXT,
-        incluye TEXT,
-        fecha TEXT
-    )`);
-    
-    db.exec(`CREATE TABLE IF NOT EXISTS comida_primer_tiempo (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        opcion TEXT,
-        fecha TEXT
-    )`);
-    
-    db.exec(`CREATE TABLE IF NOT EXISTS comida_segundo_tiempo (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        opcion TEXT,
-        fecha TEXT
-    )`);
-    
-    db.exec(`CREATE TABLE IF NOT EXISTS comida_tercer_tiempo (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        opcion TEXT,
-        fecha TEXT
-    )`);
-    
-    db.exec(`CREATE TABLE IF NOT EXISTS acompanamientos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        tipo TEXT,
-        descripcion TEXT,
-        fecha TEXT
-    )`);
-    
+    // Cargar configuración guardada
     const adminRow = db.prepare("SELECT valor FROM config WHERE clave = 'admin_id'").get();
     if (adminRow) adminID = adminRow.valor;
     
-    const cierreRow = db.prepare("SELECT valor FROM config WHERE clave = 'horario_cierre'").get();
-    if (cierreRow) horarioCierre = cierreRow.valor;
+    const rubroRow = db.prepare("SELECT valor FROM config WHERE clave = 'rubro'").get();
+    if (rubroRow) rubroNegocio = rubroRow.valor;
     
-    const desayunosRow = db.prepare("SELECT valor FROM config WHERE clave = 'horario_desayunos'").get();
-    if (desayunosRow) horarioDesayunos = JSON.parse(desayunosRow.valor);
-    
-    const comidasRow = db.prepare("SELECT valor FROM config WHERE clave = 'horario_comidas'").get();
-    if (comidasRow) horarioComidas = JSON.parse(comidasRow.valor);
-    
-    const precioDesRow = db.prepare("SELECT valor FROM config WHERE clave = 'precio_fijo_desayunos'").get();
-    if (precioDesRow) precioFijoDesayunos = precioDesRow.valor;
-    
-    const precioComRow = db.prepare("SELECT valor FROM config WHERE clave = 'precio_fijo_comida'").get();
-    if (precioComRow) precioFijoComida = precioComRow.valor;
-    
-    console.log('📦 Base de datos inicializada');
+    console.log('📦 Base de datos dinámica inicializada');
+}
+
+function guardarInfo(clave, valor) {
+    const hoy = new Date().toISOString().split('T')[0];
+    const stmt = db.prepare("INSERT OR REPLACE INTO info (clave, valor, rubro, fecha) VALUES (?, ?, ?, ?)");
+    stmt.run(clave, valor, rubroNegocio, hoy);
+    console.log(`💾 Guardado: ${clave} = ${valor}`);
+}
+
+function obtenerInfo(clave) {
+    const stmt = db.prepare("SELECT valor FROM info WHERE clave = ?");
+    const row = stmt.get(clave);
+    return row ? row.valor : null;
+}
+
+function guardarProducto(nombre, precio, descripcion = '') {
+    const hoy = new Date().toISOString().split('T')[0];
+    const stmt = db.prepare("INSERT INTO productos (nombre, precio, descripcion, fecha) VALUES (?, ?, ?, ?)");
+    stmt.run(nombre, precio, descripcion, hoy);
+}
+
+function obtenerProductos() {
+    const stmt = db.prepare("SELECT nombre, precio, descripcion FROM productos ORDER BY id");
+    return stmt.all();
+}
+
+function eliminarProducto(nombre) {
+    const stmt = db.prepare("DELETE FROM productos WHERE nombre = ?");
+    stmt.run(nombre);
 }
 
 function guardarConfig(clave, valor) {
@@ -112,18 +154,209 @@ function guardarConfig(clave, valor) {
     stmt.run(clave, valor);
 }
 
-function limpiarDia() {
-    const hoy = new Date().toISOString().split('T')[0];
-    db.prepare("DELETE FROM desayunos WHERE fecha != ?").run(hoy);
-    db.prepare("DELETE FROM comida_primer_tiempo WHERE fecha != ?").run(hoy);
-    db.prepare("DELETE FROM comida_segundo_tiempo WHERE fecha != ?").run(hoy);
-    db.prepare("DELETE FROM comida_tercer_tiempo WHERE fecha != ?").run(hoy);
-    db.prepare("DELETE FROM acompanamientos WHERE fecha != ?").run(hoy);
-    console.log('🧹 Base de datos limpiada para nuevo día');
+// ============================================
+// NLP - ENTRENAMIENTO CON SINÓNIMOS
+// ============================================
+
+const nlpManager = new NlpManager({ languages: ['es'], forceNER: true });
+
+// Entrenar intenciones del dueño
+async function entrenarNLP() {
+    // Intención: guardar nombre del negocio
+    nlpManager.addDocument('es', 'el negocio se llama {nombre}', 'negocio.nombre');
+    nlpManager.addDocument('es', 'mi tienda se llama {nombre}', 'negocio.nombre');
+    nlpManager.addDocument('es', 'mi local se llama {nombre}', 'negocio.nombre');
+    nlpManager.addDocument('es', 'mi emprendimiento se llama {nombre}', 'negocio.nombre');
+    nlpManager.addDocument('es', 'mi cafetería se llama {nombre}', 'negocio.nombre');
+    nlpManager.addDocument('es', 'mi barbería se llama {nombre}', 'negocio.nombre');
+    nlpManager.addDocument('es', 'mi taller se llama {nombre}', 'negocio.nombre');
+    nlpManager.addDocument('es', 'registra el nombre como {nombre}', 'negocio.nombre');
+    nlpManager.addDocument('es', 'el nombre del negocio es {nombre}', 'negocio.nombre');
+    
+    // Intención: guardar ubicación
+    nlpManager.addDocument('es', 'estamos en {ubicacion}', 'negocio.ubicacion');
+    nlpManager.addDocument('es', 'la dirección es {ubicacion}', 'negocio.ubicacion');
+    nlpManager.addDocument('es', 'nos ubicamos en {ubicacion}', 'negocio.ubicacion');
+    nlpManager.addDocument('es', 'el negocio está en {ubicacion}', 'negocio.ubicacion');
+    nlpManager.addDocument('es', 'mi dirección es {ubicacion}', 'negocio.ubicacion');
+    
+    // Intención: guardar horario
+    nlpManager.addDocument('es', 'abrimos de {horario}', 'negocio.horario');
+    nlpManager.addDocument('es', 'el horario es {horario}', 'negocio.horario');
+    nlpManager.addDocument('es', 'atendemos de {horario}', 'negocio.horario');
+    nlpManager.addDocument('es', 'nuestro horario de atención es {horario}', 'negocio.horario');
+    
+    // Intención: guardar producto con precio
+    nlpManager.addDocument('es', '{producto} cuesta {precio} pesos', 'producto.agregar');
+    nlpManager.addDocument('es', '{producto} vale {precio}', 'producto.agregar');
+    nlpManager.addDocument('es', 'los {producto} cuestan {precio}', 'producto.agregar');
+    nlpManager.addDocument('es', 'tenemos {producto} a {precio}', 'producto.agregar');
+    
+    // Intención: eliminar producto
+    nlpManager.addDocument('es', 'elimina {producto}', 'producto.eliminar');
+    nlpManager.addDocument('es', 'borra {producto}', 'producto.eliminar');
+    nlpManager.addDocument('es', 'ya no tenemos {producto}', 'producto.eliminar');
+    
+    // Intención: detectar rubro del negocio
+    nlpManager.addDocument('es', 'somos un restaurante', 'negocio.rubro.comida');
+    nlpManager.addDocument('es', 'somos una comida corrida', 'negocio.rubro.comida');
+    nlpManager.addDocument('es', 'somos una barbería', 'negocio.rubro.peluqueria');
+    nlpManager.addDocument('es', 'somos una peluquería', 'negocio.rubro.peluqueria');
+    nlpManager.addDocument('es', 'somos un taller mecánico', 'negocio.rubro.taller');
+    
+    // Comandos del dueño (modo cliente/dueño)
+    nlpManager.addDocument('es', 'activar modo cliente', 'modo.cliente.on');
+    nlpManager.addDocument('es', 'modo cliente', 'modo.cliente.on');
+    nlpManager.addDocument('es', 'desactivar modo cliente', 'modo.cliente.off');
+    nlpManager.addDocument('es', 'modo dueño', 'modo.cliente.off');
+    nlpManager.addDocument('es', 'salir modo cliente', 'modo.cliente.off');
+    nlpManager.addDocument('es', 'activar modo admin', 'modo.cliente.off');
+    
+    // Preguntas de clientes
+    nlpManager.addDocument('es', 'cómo se llama el negocio', 'cliente.pregunta.nombre');
+    nlpManager.addDocument('es', 'cómo se llama tu negocio', 'cliente.pregunta.nombre');
+    nlpManager.addDocument('es', 'qué nombre tiene el negocio', 'cliente.pregunta.nombre');
+    nlpManager.addDocument('es', 'cuál es el nombre', 'cliente.pregunta.nombre');
+    
+    nlpManager.addDocument('es', 'dónde estás ubicado', 'cliente.pregunta.ubicacion');
+    nlpManager.addDocument('es', 'dónde está tu negocio', 'cliente.pregunta.ubicacion');
+    nlpManager.addDocument('es', 'cuál es tu dirección', 'cliente.pregunta.ubicacion');
+    nlpManager.addDocument('es', 'en qué calle están', 'cliente.pregunta.ubicacion');
+    nlpManager.addDocument('es', 'cómo llegar', 'cliente.pregunta.ubicacion');
+    nlpManager.addDocument('es', 'dónde te ubicas', 'cliente.pregunta.ubicacion');
+    nlpManager.addDocument('es', 'dirección del negocio', 'cliente.pregunta.ubicacion');
+    
+    nlpManager.addDocument('es', 'qué horario tienen', 'cliente.pregunta.horario');
+    nlpManager.addDocument('es', 'a qué hora abren', 'cliente.pregunta.horario');
+    nlpManager.addDocument('es', 'cuándo atienden', 'cliente.pregunta.horario');
+    nlpManager.addDocument('es', 'horario de atención', 'cliente.pregunta.horario');
+    
+    nlpManager.addDocument('es', 'qué productos tienen', 'cliente.pregunta.productos');
+    nlpManager.addDocument('es', 'qué venden', 'cliente.pregunta.productos');
+    nlpManager.addDocument('es', 'qué ofrecen', 'cliente.pregunta.productos');
+    nlpManager.addDocument('es', 'cuál es el menú', 'cliente.pregunta.productos');
+    nlpManager.addDocument('es', 'qué servicios ofrecen', 'cliente.pregunta.productos');
+    
+    // Entrenar
+    await nlpManager.train();
+    console.log('🧠 NLP entrenado con sinónimos');
 }
 
 // ============================================
-// TRANSCRIPCIÓN DE VOZ
+// PROCESAR MENSAJE CON NLP
+// ============================================
+
+async function procesarConNLP(texto, esAdmin) {
+    const result = await nlpManager.process('es', texto);
+    const intent = result.intent;
+    const entities = result.entities;
+    
+    console.log(`🧠 NLP: Intención=${intent}, Entidades=${JSON.stringify(entities)}`);
+    
+    // Procesar según la intención
+    if (intent === 'negocio.nombre' && esAdmin) {
+        const nombre = entities.nombre || texto.match(/llama\s+(.+)$/i)?.[1] || texto;
+        guardarInfo('nombre_negocio', nombre);
+        return `✅ Nombre del negocio guardado como: ${nombre}`;
+    }
+    
+    if (intent === 'negocio.ubicacion' && esAdmin) {
+        const ubicacion = entities.ubicacion || texto.match(/en\s+(.+)$/i)?.[1] || texto;
+        guardarInfo('ubicacion', ubicacion);
+        return `✅ Ubicación guardada: ${ubicacion}`;
+    }
+    
+    if (intent === 'negocio.horario' && esAdmin) {
+        const horario = entities.horario || texto.match(/de\s+(.+)$/i)?.[1] || texto;
+        guardarInfo('horario', horario);
+        return `✅ Horario guardado: ${horario}`;
+    }
+    
+    if (intent === 'producto.agregar' && esAdmin) {
+        const producto = entities.producto || '';
+        const precio = entities.precio || '';
+        if (producto && precio) {
+            guardarProducto(producto, precio);
+            return `✅ Producto agregado: ${producto} - $${precio}`;
+        }
+    }
+    
+    if (intent === 'producto.eliminar' && esAdmin) {
+        const producto = entities.producto || texto.replace(/elimina|borra|ya no tenemos/i, '').trim();
+        if (producto) {
+            eliminarProducto(producto);
+            return `✅ Producto eliminado: ${producto}`;
+        }
+    }
+    
+    if (intent === 'negocio.rubro.comida' && esAdmin) {
+        rubroNegocio = 'comida';
+        guardarConfig('rubro', 'comida');
+        return `✅ Rubro configurado: Restaurante/Comida 🍽️`;
+    }
+    
+    if (intent === 'negocio.rubro.peluqueria' && esAdmin) {
+        rubroNegocio = 'peluqueria';
+        guardarConfig('rubro', 'peluqueria');
+        return `✅ Rubro configurado: Peluquería/Barbería ✂️`;
+    }
+    
+    if (intent === 'negocio.rubro.taller' && esAdmin) {
+        rubroNegocio = 'taller';
+        guardarConfig('rubro', 'taller');
+        return `✅ Rubro configurado: Taller Mecánico 🔧`;
+    }
+    
+    if (intent === 'modo.cliente.on' && esAdmin) {
+        modoCliente = true;
+        return `🧪 Modo cliente activado. Ahora te trataré como cliente para pruebas.`;
+    }
+    
+    if (intent === 'modo.cliente.off' && esAdmin) {
+        modoCliente = false;
+        return `✅ Modo cliente desactivado. Ahora vuelves a ser el administrador.`;
+    }
+    
+    // Respuestas para clientes (o admin en modo cliente)
+    if (!esAdmin || modoCliente) {
+        if (intent === 'cliente.pregunta.nombre') {
+            const nombre = obtenerInfo('nombre_negocio');
+            if (nombre) return spintax(`{${getSaludoPorHorario()}|Hola|Qué tal|Saludos}! ${getEmojisPorRubro().principal} El negocio se llama *${nombre}*. ¿Te puedo ayudar con algo más?`);
+            return spintax(`{${getSaludoPorHorario()}|Hola|Qué tal}! ${getEmojisPorRubro().principal} Aún no tengo registrado el nombre del negocio. Pregúntale al dueño.`);
+        }
+        
+        if (intent === 'cliente.pregunta.ubicacion') {
+            const ubicacion = obtenerInfo('ubicacion');
+            if (ubicacion) return spintax(`{${getSaludoPorHorario()}|Claro|Por supuesto}! ${getEmojisPorRubro().ubicacion} Nos ubicamos en: *${ubicacion}*. ¡Te esperamos!`);
+            return spintax(`{${getSaludoPorHorario()}|Hola}! ${getEmojisPorRubro().principal} Aún no tengo registrada la ubicación. Pregúntale al dueño.`);
+        }
+        
+        if (intent === 'cliente.pregunta.horario') {
+            const horario = obtenerInfo('horario');
+            if (horario) return spintax(`{${getSaludoPorHorario()}|Te cuento|Claro}! ${getEmojisPorRubro().horario} Nuestro horario es: *${horario}*.`);
+            return spintax(`{${getSaludoPorHorario()}|Hola}! ${getEmojisPorRubro().principal} Aún no tengo registrado el horario. Pregúntale al dueño.`);
+        }
+        
+        if (intent === 'cliente.pregunta.productos') {
+            const productos = obtenerProductos();
+            if (productos.length > 0) {
+                let respuesta = `${getSaludoPorHorario()} ${getEmojisPorRubro().producto} *Lo que ofrecemos:*\n\n`;
+                productos.forEach(p => {
+                    respuesta += `• ${p.nombre}`;
+                    if (p.precio) respuesta += ` - $${p.precio}`;
+                    respuesta += `\n`;
+                });
+                return respuesta;
+            }
+            return spintax(`{${getSaludoPorHorario()}|Hola}! ${getEmojisPorRubro().principal} Aún no tengo productos registrados. Pregúntale al dueño.`);
+        }
+    }
+    
+    return null; // No se procesó ninguna intención
+}
+
+// ============================================
+// TRANSCRIPCIÓN DE VOZ (Whisper)
 // ============================================
 
 async function transcribirAudio(bufferAudio) {
@@ -156,217 +389,82 @@ async function transcribirAudio(bufferAudio) {
 }
 
 // ============================================
-// INTERPRETACIÓN SEMÁNTICA
+// COLA DE MENSAJES Y DELAY HUMANO
 // ============================================
 
-function interpretarInstruccion(texto) {
-    const instruccion = { tipo: null, datos: {} };
+async function enviarConDelay(sock, to, texto) {
+    const delayMs = Math.floor(Math.random() * (14000 - 7000 + 1) + 7000); // 7-14 segundos
+    console.log(`⏳ Esperando ${delayMs/1000} segundos antes de responder...`);
     
-    if (texto.includes('agrega') || texto.includes('registra') || texto.includes('tenemos')) {
-        instruccion.tipo = 'agregar';
-        if (texto.includes('desayuno')) instruccion.datos.categoria = 'desayunos';
-        if (texto.includes('comida') || texto.includes('primer tiempo') || texto.includes('segundo tiempo') || texto.includes('tercer tiempo')) {
-            instruccion.datos.categoria = 'comida';
-        }
-    }
+    // Mostrar "escribiendo..."
+    await sock.sendPresenceUpdate('composing', to);
+    await delay(delayMs);
     
-    if (texto.includes('elimina') || texto.includes('borra') || texto.includes('ya no')) {
-        instruccion.tipo = 'eliminar';
-    }
-    
-    if (texto.includes('cambia') || texto.includes('actualiza')) {
-        instruccion.tipo = 'actualizar';
-    }
-    
-    if (texto.includes('configura') || texto.includes('establece')) {
-        instruccion.tipo = 'configurar';
-    }
-    
-    if (texto.includes('reinicia') && (texto.includes('base') || texto.includes('datos'))) {
-        instruccion.tipo = 'reiniciar';
-    }
-    
-    if (texto.includes('activar modo cliente')) instruccion.tipo = 'modo_cliente_on';
-    if (texto.includes('desactivar modo cliente')) instruccion.tipo = 'modo_cliente_off';
-    if (texto.includes('en qué modo')) instruccion.tipo = 'consultar_modo';
-    
-    return instruccion;
+    await sock.sendMessage(to, { text: texto });
+    console.log(`✅ Respuesta enviada después de ${delayMs/1000}s`);
 }
 
-function interpretarPreguntaCliente(texto) {
-    if (texto.includes('desayuno')) return 'desayunos';
-    if (texto.includes('comida') || texto.includes('corrida')) return 'comida';
-    if (texto.includes('ubicación') || texto.includes('dirección') || texto.includes('dónde están')) return 'ubicacion';
-    if (texto.includes('horario')) return 'horario';
-    return 'general';
-}
-
-// ============================================
-// RESPUESTAS AL CLIENTE
-// ============================================
-
-function obtenerHoraActual() {
-    const ahora = new Date();
-    return ahora.toTimeString().slice(0,5);
-}
-
-function estaEnHorario(horario) {
-    const ahora = obtenerHoraActual();
-    return ahora >= horario.inicio && ahora <= horario.fin;
-}
-
-async function responderDesayunos(sock, to) {
-    const stmt = db.prepare("SELECT producto, precio, incluye FROM desayunos ORDER BY id");
-    const desayunos = stmt.all();
+async function procesarCola(sock) {
+    if (procesandoCola) return;
+    procesandoCola = true;
     
-    if (desayunos.length === 0) {
-        await sock.sendMessage(to, { text: "🍳 Por el momento no tenemos desayunos registrados para hoy." });
-        return;
-    }
-    
-    let mensaje = "🍳 *DESAYUNOS*\n\n";
-    for (const d of desayunos) {
-        mensaje += `• ${d.producto}`;
-        if (d.precio) mensaje += ` - $${d.precio}`;
-        mensaje += `\n`;
-    }
-    if (desayunos[0]?.incluye) mensaje += `\n*Incluye:* ${desayunos[0].incluye}`;
-    await sock.sendMessage(to, { text: mensaje });
-}
-
-async function responderComidaCompleta(sock, to) {
-    const primerStmt = db.prepare("SELECT opcion FROM comida_primer_tiempo ORDER BY id");
-    const segundoStmt = db.prepare("SELECT opcion FROM comida_segundo_tiempo ORDER BY id");
-    const tercerStmt = db.prepare("SELECT opcion FROM comida_tercer_tiempo ORDER BY id");
-    const acompanamientosStmt = db.prepare("SELECT tipo, descripcion FROM acompanamientos ORDER BY id");
-    
-    const primerTiempo = primerStmt.all().map(r => r.opcion);
-    const segundoTiempo = segundoStmt.all().map(r => r.opcion);
-    const tercerTiempo = tercerStmt.all().map(r => r.opcion);
-    const acompanamientos = acompanamientosStmt.all();
-    
-    if (primerTiempo.length > 0) {
-        let msg = "🍽️ *PRIMER TIEMPO* (Sopa/Consomé)\n";
-        primerTiempo.forEach(op => { msg += `• ${op}\n`; });
-        await sock.sendMessage(to, { text: msg });
-        await new Promise(r => setTimeout(r, 2000));
-    }
-    
-    if (segundoTiempo.length > 0) {
-        let msg = "🍚 *SEGUNDO TIEMPO* (Arroz/Pasta)\n";
-        segundoTiempo.forEach(op => { msg += `• ${op}\n`; });
-        await sock.sendMessage(to, { text: msg });
-        await new Promise(r => setTimeout(r, 2000));
-    }
-    
-    if (tercerTiempo.length > 0) {
-        const mitad = Math.ceil(tercerTiempo.length / 2);
-        const parte1 = tercerTiempo.slice(0, mitad);
-        const parte2 = tercerTiempo.slice(mitad);
+    while (colaMensajes.length > 0) {
+        const { sock: sockRef, to, texto } = colaMensajes.shift();
         
-        let msg1 = "🍗 *TERCER TIEMPO* (Guisados)\n";
-        parte1.forEach(op => { msg1 += `• ${op}\n`; });
-        await sock.sendMessage(to, { text: msg1 });
-        await new Promise(r => setTimeout(r, 2000));
-        
-        if (parte2.length > 0) {
-            let msg2 = "🍗 *TERCER TIEMPO (Continuación)*\n";
-            parte2.forEach(op => { msg2 += `• ${op}\n`; });
-            await sock.sendMessage(to, { text: msg2 });
-            await new Promise(r => setTimeout(r, 2000));
+        // Rate limiting: máximo 10 mensajes por minuto
+        const ahora = Date.now();
+        if (ahora - ultimoResetContador > 60000) {
+            contadorRespuestasPorMinuto = 0;
+            ultimoResetContador = ahora;
         }
+        
+        if (contadorRespuestasPorMinuto >= 10) {
+            console.log('⏸️ Rate limit alcanzado, esperando 30 segundos...');
+            await delay(30000);
+            contadorRespuestasPorMinuto = 0;
+        }
+        
+        await enviarConDelay(sockRef, to, texto);
+        contadorRespuestasPorMinuto++;
     }
     
-    if (acompanamientos.length > 0) {
-        let msg = "🥤 *INCLUYE*\n";
-        acompanamientos.forEach(a => { msg += `• ${a.descripcion}\n`; });
-        await sock.sendMessage(to, { text: msg });
-        await new Promise(r => setTimeout(r, 1500));
-    }
-    
-    if (precioFijoComida) {
-        await sock.sendMessage(to, { text: `💰 *Precio único: $${precioFijoComida} MXN*` });
-    }
+    procesandoCola = false;
+}
+
+function agregarACola(sock, to, texto) {
+    colaMensajes.push({ sock, to, texto });
+    procesarCola(sock);
 }
 
 // ============================================
-// PROCESAMIENTO DE MENSAJES
+// PROCESAMIENTO DE MENSAJES (con NLP y respaldo)
 // ============================================
 
 async function procesarMensaje(sock, msg, sender, messageText, esVoz) {
     const esAdmin = (adminID === sender);
     
+    // Si es admin y NO está en modo cliente, intentar procesar con NLP
     if (esAdmin && !modoCliente) {
-        if (esVoz) {
-            const instruccion = interpretarInstruccion(messageText);
-            switch (instruccion.tipo) {
-                case 'agregar':
-                    await sock.sendMessage(sender, { text: "✅ Información registrada. Procesando..." });
-                    break;
-                case 'eliminar':
-                    await sock.sendMessage(sender, { text: "✅ Eliminado" });
-                    break;
-                case 'actualizar':
-                    await sock.sendMessage(sender, { text: "✅ Actualizado" });
-                    break;
-                case 'configurar':
-                    await sock.sendMessage(sender, { text: "✅ Configurado" });
-                    break;
-                case 'reiniciar':
-                    limpiarDia();
-                    await sock.sendMessage(sender, { text: "✅ Base de datos reiniciada" });
-                    break;
-                case 'modo_cliente_on':
-                    modoCliente = true;
-                    await sock.sendMessage(sender, { text: "🧪 Modo cliente activado" });
-                    break;
-                case 'modo_cliente_off':
-                    modoCliente = false;
-                    await sock.sendMessage(sender, { text: "✅ Modo cliente desactivado" });
-                    break;
-                case 'consultar_modo':
-                    const estado = modoCliente ? "🧪 Modo cliente" : "🔧 Modo admin";
-                    await sock.sendMessage(sender, { text: `Estás en: ${estado}` });
-                    break;
-                default:
-                    await sock.sendMessage(sender, { text: "✅ Instrucción recibida" });
-            }
+        const respuestaNLP = await procesarConNLP(messageText, true);
+        if (respuestaNLP) {
+            agregarACola(sock, sender, respuestaNLP);
+            return;
         }
+        // Si NLP no entendió, responder genérico
+        agregarACola(sock, sender, `✅ Instrucción recibida. ${getEmojisPorRubro().positivo} Procesando...`);
         return;
     }
     
-    const pregunta = interpretarPreguntaCliente(messageText);
-    await sock.sendPresenceUpdate('composing', sender);
-    await new Promise(r => setTimeout(r, 1500));
-    
-    switch (pregunta) {
-        case 'desayunos':
-            if (!estaEnHorario(horarioDesayunos)) {
-                if (estaEnHorario(horarioComidas)) {
-                    await sock.sendMessage(sender, { text: "🙏 Discúlpamos, los desayunos ya terminaron. ¿Quieres la información de las comidas?" });
-                } else {
-                    await sock.sendMessage(sender, { text: `🌙 Los desayunos son de ${horarioDesayunos.inicio} a ${horarioDesayunos.fin}` });
-                }
-            } else {
-                await responderDesayunos(sock, sender);
-            }
-            break;
-        case 'comida':
-            if (!estaEnHorario(horarioComidas)) {
-                await sock.sendMessage(sender, { text: `🍽️ Las comidas empiezan a las ${horarioComidas.inicio}. Escríbenos cerca de ese horario` });
-            } else {
-                await responderComidaCompleta(sock, sender);
-            }
-            break;
-        case 'ubicacion':
-            await sock.sendMessage(sender, { text: "📍 Calle Juárez #123, Colonia Centro" });
-            break;
-        case 'horario':
-            await sock.sendMessage(sender, { text: `🕐 Desayunos: ${horarioDesayunos.inicio}-${horarioDesayunos.fin}\n🍽️ Comidas: ${horarioComidas.inicio}-${horarioComidas.fin}` });
-            break;
-        default:
-            await sock.sendMessage(sender, { text: "🍽️ Pregúntame por: desayunos, comidas, horarios o ubicación" });
+    // Cliente (o admin en modo cliente)
+    const respuestaNLP = await procesarConNLP(messageText, false);
+    if (respuestaNLP) {
+        agregarACola(sock, sender, respuestaNLP);
+        return;
     }
+    
+    // Respuesta por defecto si NLP no entendió
+    const respuestaDefault = spintax(`{${getSaludoPorHorario()}|Hola|Qué tal|Saludos}! ${getEmojisPorRubro().principal} Puedes preguntarme por: el nombre del negocio, ubicación, horario o productos. ¿En qué te ayudo?`);
+    agregarACola(sock, sender, respuestaDefault);
 }
 
 // ============================================
@@ -376,6 +474,7 @@ async function procesarMensaje(sock, msg, sender, messageText, esVoz) {
 async function startBot() {
     console.log("🚀 Iniciando ComidaBot...");
     initDatabase();
+    await entrenarNLP();
     
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     const { version } = await fetchLatestBaileysVersion();
@@ -413,6 +512,7 @@ async function startBot() {
                 console.log("⏳ Esperando respuesta...");
             } else {
                 console.log(`👑 Dueño: ${adminID}`);
+                console.log(`🏢 Rubro: ${rubroNegocio}`);
                 console.log("🎧 Esperando instrucciones por voz...");
                 console.log("💬 Esperando preguntas de clientes...");
             }
@@ -436,7 +536,6 @@ async function startBot() {
         } else if (msg.message.audioMessage) {
             esVoz = true;
             try {
-                // CORRECCIÓN: Usar downloadMediaMessage correctamente
                 const stream = await downloadMediaMessage(
                     msg,
                     'stream',
@@ -467,11 +566,12 @@ async function startBot() {
         
         console.log(`📩 De: ${sender.split('@')[0]} | "${messageText}"`);
         
+        // Verificar si es la respuesta de verificación del dueño
         if (adminID === null && sender !== 'status@broadcast') {
             adminID = sender;
             guardarConfig('admin_id', adminID);
             console.log(`✅ Dueño verificado: ${adminID}`);
-            await sock.sendMessage(sender, { text: "✅ Eres el administrador. DAME INSTRUCCIONES POR VOZ." });
+            await sock.sendMessage(sender, { text: "✅ Eres el administrador. Puedes darme instrucciones por voz." });
             return;
         }
         
