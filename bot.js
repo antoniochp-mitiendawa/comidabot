@@ -2,7 +2,7 @@
 
 // ============================================
 // COMIDABOT - Bot de WhatsApp para Comida Corrida
-// Versión: 1.0.0
+// Versión: 1.0.1 (con Whisper.cpp y yskj-sqlite-android)
 // ============================================
 
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
@@ -10,7 +10,8 @@ const { Boom } = require('@hapi/boom');
 const P = require('pino');
 const fs = require('fs');
 const path = require('path');
-const sqlite3 = require('sqlite3').verbose();
+// CAMBIO: Usar yskj-sqlite-android en lugar de sqlite3 (compatible con Termux)
+const Database = require('yskj-sqlite-android');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
@@ -30,7 +31,9 @@ let precioFijoComida = null;       // Precio único de la comida corrida
 // Directorios
 const AUTH_DIR = './auth_info';
 const DB_DIR = './db';
-const MODEL_DIR = './model';
+const TEMP_AUDIO_DIR = './temp_audio';
+const WHISPER_CLI = 'whisper-cli';  // Comando de whisper.cpp
+const WHISPER_MODEL = '/data/data/com.termux/files/home/whisper.cpp/models/ggml-base.bin';
 
 // Base de datos
 let db;
@@ -42,16 +45,16 @@ let db;
 function initDatabase() {
     if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR);
     
-    db = new sqlite3.Database(path.join(DB_DIR, 'comidabot.db'));
+    // Cambio: usar Database de yskj-sqlite-android
+    db = new Database(path.join(DB_DIR, 'comidabot.db'));
     
-    // Tabla de configuración (dueño, horarios, etc.)
-    db.run(`CREATE TABLE IF NOT EXISTS config (
+    // Crear tablas si no existen (usando exec para múltiples statements)
+    db.exec(`CREATE TABLE IF NOT EXISTS config (
         clave TEXT PRIMARY KEY,
         valor TEXT
     )`);
     
-    // Tabla de desayunos (se borra diario)
-    db.run(`CREATE TABLE IF NOT EXISTS desayunos (
+    db.exec(`CREATE TABLE IF NOT EXISTS desayunos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         producto TEXT,
         precio TEXT,
@@ -59,29 +62,25 @@ function initDatabase() {
         fecha TEXT
     )`);
     
-    // Tabla de comida corrida - primer tiempo
-    db.run(`CREATE TABLE IF NOT EXISTS comida_primer_tiempo (
+    db.exec(`CREATE TABLE IF NOT EXISTS comida_primer_tiempo (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         opcion TEXT,
         fecha TEXT
     )`);
     
-    // Tabla de comida corrida - segundo tiempo
-    db.run(`CREATE TABLE IF NOT EXISTS comida_segundo_tiempo (
+    db.exec(`CREATE TABLE IF NOT EXISTS comida_segundo_tiempo (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         opcion TEXT,
         fecha TEXT
     )`);
     
-    // Tabla de comida corrida - tercer tiempo (guisados)
-    db.run(`CREATE TABLE IF NOT EXISTS comida_tercer_tiempo (
+    db.exec(`CREATE TABLE IF NOT EXISTS comida_tercer_tiempo (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         opcion TEXT,
         fecha TEXT
     )`);
     
-    // Tabla de acompañamientos
-    db.run(`CREATE TABLE IF NOT EXISTS acompanamientos (
+    db.exec(`CREATE TABLE IF NOT EXISTS acompanamientos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tipo TEXT,
         descripcion TEXT,
@@ -89,89 +88,85 @@ function initDatabase() {
     )`);
     
     // Cargar configuración guardada
-    db.get("SELECT valor FROM config WHERE clave = 'admin_id'", (err, row) => {
-        if (row) adminID = row.valor;
-    });
+    const adminRow = db.prepare("SELECT valor FROM config WHERE clave = 'admin_id'").get();
+    if (adminRow) adminID = adminRow.valor;
     
-    db.get("SELECT valor FROM config WHERE clave = 'horario_cierre'", (err, row) => {
-        if (row) horarioCierre = row.valor;
-    });
+    const cierreRow = db.prepare("SELECT valor FROM config WHERE clave = 'horario_cierre'").get();
+    if (cierreRow) horarioCierre = cierreRow.valor;
     
-    db.get("SELECT valor FROM config WHERE clave = 'horario_desayunos'", (err, row) => {
-        if (row) horarioDesayunos = JSON.parse(row.valor);
-    });
+    const desayunosRow = db.prepare("SELECT valor FROM config WHERE clave = 'horario_desayunos'").get();
+    if (desayunosRow) horarioDesayunos = JSON.parse(desayunosRow.valor);
     
-    db.get("SELECT valor FROM config WHERE clave = 'horario_comidas'", (err, row) => {
-        if (row) horarioComidas = JSON.parse(row.valor);
-    });
+    const comidasRow = db.prepare("SELECT valor FROM config WHERE clave = 'horario_comidas'").get();
+    if (comidasRow) horarioComidas = JSON.parse(comidasRow.valor);
     
-    db.get("SELECT valor FROM config WHERE clave = 'precio_fijo_desayunos'", (err, row) => {
-        if (row) precioFijoDesayunos = row.valor;
-    });
+    const precioDesRow = db.prepare("SELECT valor FROM config WHERE clave = 'precio_fijo_desayunos'").get();
+    if (precioDesRow) precioFijoDesayunos = precioDesRow.valor;
     
-    db.get("SELECT valor FROM config WHERE clave = 'precio_fijo_comida'", (err, row) => {
-        if (row) precioFijoComida = row.valor;
-    });
+    const precioComRow = db.prepare("SELECT valor FROM config WHERE clave = 'precio_fijo_comida'").get();
+    if (precioComRow) precioFijoComida = precioComRow.valor;
     
     console.log('📦 Base de datos inicializada');
 }
 
 function guardarConfig(clave, valor) {
-    db.run("INSERT OR REPLACE INTO config (clave, valor) VALUES (?, ?)", [clave, valor]);
+    const stmt = db.prepare("INSERT OR REPLACE INTO config (clave, valor) VALUES (?, ?)");
+    stmt.run(clave, valor);
 }
 
 function limpiarDia() {
     const hoy = new Date().toISOString().split('T')[0];
-    db.run("DELETE FROM desayunos WHERE fecha != ?", [hoy]);
-    db.run("DELETE FROM comida_primer_tiempo WHERE fecha != ?", [hoy]);
-    db.run("DELETE FROM comida_segundo_tiempo WHERE fecha != ?", [hoy]);
-    db.run("DELETE FROM comida_tercer_tiempo WHERE fecha != ?", [hoy]);
-    db.run("DELETE FROM acompanamientos WHERE fecha != ?", [hoy]);
+    db.prepare("DELETE FROM desayunos WHERE fecha != ?").run(hoy);
+    db.prepare("DELETE FROM comida_primer_tiempo WHERE fecha != ?").run(hoy);
+    db.prepare("DELETE FROM comida_segundo_tiempo WHERE fecha != ?").run(hoy);
+    db.prepare("DELETE FROM comida_tercer_tiempo WHERE fecha != ?").run(hoy);
+    db.prepare("DELETE FROM acompanamientos WHERE fecha != ?").run(hoy);
     console.log('🧹 Base de datos limpiada para nuevo día');
 }
 
 // ============================================
-// FUNCIONES DE TRANSCRIPCIÓN DE VOZ (LOCAL)
+// FUNCIONES DE TRANSCRIPCIÓN DE VOZ (Whisper.cpp)
 // ============================================
 
 async function transcribirAudio(bufferAudio) {
-    // Guardar audio temporal
-    const tempOpus = path.join(__dirname, 'temp_audio.opus');
-    const tempWav = path.join(__dirname, 'temp_audio.wav');
+    // Guardar audio temporal en formato opus
+    const tempOpus = path.join(TEMP_AUDIO_DIR, `audio_${Date.now()}.opus`);
+    const tempWav = path.join(TEMP_AUDIO_DIR, `audio_${Date.now()}.wav`);
+    const tempTxt = tempWav + '.txt';
     
+    // Asegurar que el directorio temporal existe
+    if (!fs.existsSync(TEMP_AUDIO_DIR)) fs.mkdirSync(TEMP_AUDIO_DIR);
+    
+    // Guardar buffer de audio
     fs.writeFileSync(tempOpus, bufferAudio);
     
-    // Convertir de opus a wav usando ffmpeg
-    await execAsync(`ffmpeg -i ${tempOpus} -acodec pcm_s16le -ar 16000 ${tempWav} -y`);
+    // Convertir de opus a wav (16kHz mono para Whisper)
+    await execAsync(`ffmpeg -i ${tempOpus} -ar 16000 -ac 1 -c:a pcm_s16le ${tempWav} -y`);
     
-    // Usar Vosk para transcribir
-    const { spawn } = require('child_process');
-    const vosk = require('vosk');
-    
-    vosk.setLogLevel(-1);
-    const model = new vosk.Model(MODEL_DIR);
-    const rec = new vosk.Recognizer({ model: model, sampleRate: 16000 });
-    
-    const audioData = fs.readFileSync(tempWav);
-    const buffer = audioData.slice(44); // Saltar cabecera WAV
-    
-    let texto = '';
-    if (rec.acceptWaveform(buffer)) {
-        const result = JSON.parse(rec.result());
-        texto = result.text;
-    } else {
-        const partial = rec.partialResult();
-        texto = JSON.parse(partial).partial;
+    // Ejecutar whisper-cli para transcribir
+    try {
+        await execAsync(`${WHISPER_CLI} -m ${WHISPER_MODEL} -f ${tempWav} -otxt -l es`);
+        
+        // Leer el resultado de la transcripción
+        let texto = '';
+        if (fs.existsSync(tempTxt)) {
+            texto = fs.readFileSync(tempTxt, 'utf8').trim();
+        }
+        
+        // Limpiar archivos temporales
+        fs.unlinkSync(tempOpus);
+        fs.unlinkSync(tempWav);
+        if (fs.existsSync(tempTxt)) fs.unlinkSync(tempTxt);
+        
+        return texto.toLowerCase();
+    } catch (error) {
+        console.error('Error en transcripción:', error);
+        // Limpiar archivos en caso de error
+        if (fs.existsSync(tempOpus)) fs.unlinkSync(tempOpus);
+        if (fs.existsSync(tempWav)) fs.unlinkSync(tempWav);
+        if (fs.existsSync(tempTxt)) fs.unlinkSync(tempTxt);
+        return '';
     }
-    
-    rec.free();
-    model.free();
-    
-    // Limpiar archivos temporales
-    fs.unlinkSync(tempOpus);
-    fs.unlinkSync(tempWav);
-    
-    return texto.toLowerCase();
 }
 
 // ============================================
@@ -270,11 +265,8 @@ function estaEnHorario(horario) {
 }
 
 async function responderDesayunos(sock, to) {
-    const desayunos = await new Promise((resolve) => {
-        db.all("SELECT producto, precio, incluye FROM desayunos ORDER BY id", [], (err, rows) => {
-            resolve(rows);
-        });
-    });
+    const stmt = db.prepare("SELECT producto, precio, incluye FROM desayunos ORDER BY id");
+    const desayunos = stmt.all();
     
     if (desayunos.length === 0) {
         await sock.sendMessage(to, { text: "🍳 Por el momento no tenemos desayunos registrados para hoy." });
@@ -295,29 +287,15 @@ async function responderDesayunos(sock, to) {
 }
 
 async function responderComidaCompleta(sock, to) {
-    const primerTiempo = await new Promise((resolve) => {
-        db.all("SELECT opcion FROM comida_primer_tiempo ORDER BY id", [], (err, rows) => {
-            resolve(rows.map(r => r.opcion));
-        });
-    });
+    const primerStmt = db.prepare("SELECT opcion FROM comida_primer_tiempo ORDER BY id");
+    const segundoStmt = db.prepare("SELECT opcion FROM comida_segundo_tiempo ORDER BY id");
+    const tercerStmt = db.prepare("SELECT opcion FROM comida_tercer_tiempo ORDER BY id");
+    const acompanamientosStmt = db.prepare("SELECT tipo, descripcion FROM acompanamientos ORDER BY id");
     
-    const segundoTiempo = await new Promise((resolve) => {
-        db.all("SELECT opcion FROM comida_segundo_tiempo ORDER BY id", [], (err, rows) => {
-            resolve(rows.map(r => r.opcion));
-        });
-    });
-    
-    const tercerTiempo = await new Promise((resolve) => {
-        db.all("SELECT opcion FROM comida_tercer_tiempo ORDER BY id", [], (err, rows) => {
-            resolve(rows.map(r => r.opcion));
-        });
-    });
-    
-    const acompanamientos = await new Promise((resolve) => {
-        db.all("SELECT tipo, descripcion FROM acompanamientos ORDER BY id", [], (err, rows) => {
-            resolve(rows);
-        });
-    });
+    const primerTiempo = primerStmt.all().map(r => r.opcion);
+    const segundoTiempo = segundoStmt.all().map(r => r.opcion);
+    const tercerTiempo = tercerStmt.all().map(r => r.opcion);
+    const acompanamientos = acompanamientosStmt.all();
     
     // Función para enviar mensaje con delay
     const enviarConDelay = (msg, delayMs = 2000) => {
@@ -394,7 +372,6 @@ async function procesarMensaje(sock, msg, sender, messageText, esVoz) {
             switch (instruccion.tipo) {
                 case 'agregar':
                     await sock.sendMessage(sender, { text: "✅ Información registrada. Procesando..." });
-                    // Aquí iría la lógica de guardar en BD
                     break;
                 case 'eliminar':
                     await sock.sendMessage(sender, { text: `✅ Eliminado: ${instruccion.datos.producto || 'producto'}` });
@@ -486,7 +463,7 @@ async function startBot() {
     const sock = makeWASocket({
         version,
         auth: state,
-        printQRInTerminal: false,  // No usamos QR, usamos pairing code
+        printQRInTerminal: false,
         logger: P({ level: 'silent' }),
         browser: ['ComidaBot', 'Chrome', '1.0.0']
     });
@@ -505,13 +482,11 @@ async function startBot() {
         } else if (connection === 'open') {
             console.log("✅ Bot conectado exitosamente");
             
-            // Verificar si ya tenemos el admin ID
             if (!adminID) {
                 console.log("\n==========================================");
                 console.log("⚙️ CONFIGURACIÓN INICIAL");
                 console.log("==========================================");
                 
-                // Pedir número del dueño
                 const readline = require('readline');
                 const rl = readline.createInterface({
                     input: process.stdin,
@@ -564,6 +539,23 @@ async function startBot() {
         }
         
         console.log(`📩 De: ${sender.split('@')[0]} | Texto: "${messageText}" | Voz: ${esVoz}`);
+        
+        // Verificar si es la respuesta de verificación del dueño
+        if (adminID === null && sender !== 'status@broadcast') {
+            // Esto es para capturar la respuesta del dueño durante la configuración inicial
+            const readline = require('readline');
+            const rl = readline.createInterface({
+                input: process.stdin,
+                output: process.stdout
+            });
+            
+            adminID = sender;
+            guardarConfig('admin_id', adminID);
+            console.log(`✅ Dueño verificado. ID guardado: ${adminID}`);
+            await sock.sendMessage(sender, { text: "✅ Has sido verificado como administrador. Ahora puedes darme instrucciones por voz." });
+            rl.close();
+            return;
+        }
         
         await procesarMensaje(sock, msg, sender, messageText, esVoz);
     });
