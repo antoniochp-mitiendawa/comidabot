@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# ============================================
-# COMIDABOT - INSTALACIÓN COMPLETA
-# ============================================
+# === SCRIPT DE INSTALACIÓN PARA COMIDABOT ===
+# Ejecutar en Termux después de clonar el repositorio
 
 echo "======================================"
 echo "   COMIDABOT - INSTALACIÓN COMPLETA"
@@ -16,13 +15,13 @@ echo "✅ Termux actualizado"
 echo ""
 
 # Paso 2: Instalar herramientas base
-echo "[2/10] Instalando herramientas base..."
+echo "[2/10] Instalando herramientas base (git, nodejs, python, ffmpeg)..."
 pkg install git nodejs-lts python ffmpeg sox opus-tools tmux cmake clang make termux-api -y
 echo "✅ Herramientas base instaladas"
 echo ""
 
-# Paso 3: Instalar Whisper.cpp
-echo "[3/10] Instalando Whisper.cpp..."
+# Paso 3: Instalar y compilar Whisper.cpp
+echo "[3/10] Instalando Whisper.cpp para transcripción de voz offline..."
 cd ~
 if [ ! -d "whisper.cpp" ]; then
     git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git
@@ -35,7 +34,7 @@ if [ ! -f "ggml-base.bin" ]; then
     bash download-ggml-model.sh base
 fi
 cd ~
-echo "✅ Whisper.cpp instalado"
+echo "✅ Whisper.cpp instalado y compilado"
 echo ""
 
 # Paso 4: Configurar acceso global a whisper-cli
@@ -56,9 +55,9 @@ npm init -y
 echo "✅ Proyecto inicializado"
 echo ""
 
-# Paso 7: Instalar dependencias de Node.js (incluyendo node-nlp)
+# Paso 7: Instalar dependencias de Node.js (AGREGADO: node-nlp)
 echo "[6/10] Instalando dependencias de Node.js..."
-npm install @whiskeysockets/baileys qrcode-terminal pino yskj-sqlite-android wav node-nlp
+npm install @whiskeysockets/baileys qrcode-terminal pino yskj-sqlite-android wav @mapbox/node-pre-gyp node-nlp
 echo "✅ Dependencias instaladas"
 echo ""
 
@@ -77,7 +76,7 @@ echo "✅ Permisos asignados"
 echo ""
 
 # Paso 10: Configurar wake lock
-echo "[9/10] Configurando wake lock..."
+echo "[9/10] Configurando wake lock para mantener Termux activo..."
 termux-wake-lock
 echo "✅ Wake lock activado"
 echo ""
